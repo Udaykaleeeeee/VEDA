@@ -63,7 +63,9 @@ _PROJECT_IDENTIFIER = re.compile(
     r"\b\d{4}-\d{2}-\d{2}\b", re.IGNORECASE)
 _DEEP_FOLLOW_UP = re.compile(
     r"^\s*(?:why|how|which\s+one|what\s+about\s+(?:that|it|those)|"
-    r"explain(?:\s+that)?|tell\s+me\s+more|show\s+me|go\s+on|continue|"
+    r"explain(?:\s+that)?|summarize(?:\s+that)?|rephrase(?:\s+that)?|"
+    r"rewrite(?:\s+that)?|simplify(?:\s+that)?|repeat(?:\s+that)?|"
+    r"tell\s+me\s+more|show\s+me|go\s+on|continue|"
     r"and\s+(?:that|it|the\s+rest)|can\s+you\s+check\s+(?:that|it))"
     r"[?.!\s]*$", re.IGNORECASE)
 _CONTEXT_REFERENCE = re.compile(

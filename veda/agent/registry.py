@@ -32,7 +32,7 @@ LABELS = {
     "claude_code": "Claude Code",
     "codex": "Codex",
     "gemini_api": "Gemini API (manual)",
-    "local_antigravity": "Antigravity inbox bridge (manual)",
+    "local_antigravity": "Local reasoning agent",
 }
 
 # Backward compatibility: old databases used "antigravity" for the direct API.

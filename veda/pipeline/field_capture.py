@@ -7,6 +7,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from .. import audit, db, events
+from ..resolution import events as event_model, reality_graph
+from ..retrieval import engine as retrieval_engine
 from . import actuals, extract, ingest
 
 _CLIENT_ID = re.compile(r"^[A-Za-z0-9._:-]{8,120}$")
@@ -15,6 +17,62 @@ _EVENT_STATES = {"start", "progress", "finish"}
 MAX_ATTACHMENTS = 8
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 MAX_TOTAL_BYTES = 80 * 1024 * 1024
+
+
+def interpret(project_id: str, payload: dict) -> dict:
+    """Extract a draft event card without persisting or confirming anything."""
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise ValueError("text is required")
+    if len(text) > 5000:
+        raise ValueError("text exceeds 5,000 characters")
+    occurred = str(payload.get("occurred_at") or "").strip()
+    event_date = occurred[:10] if re.fullmatch(r"\d{4}-\d{2}-\d{2}.*", occurred) else None
+    progress_match = re.search(r"\b(100(?:\.0+)?|\d{1,2}(?:\.\d+)?)\s*%", text)
+    remaining_match = re.search(
+        r"\b(\d+(?:\.\d+)?)\s*(?:working\s+)?days?\s+(?:remain|remaining|left)\b", text, re.I)
+    quantity_match = re.search(
+        r"\b(\d+(?:\.\d+)?)\s*(joints?|welds?|m3|m2|m|km|tonnes?|kg|units?)\b", text, re.I)
+    draft = {
+        "id": "draft", "project_id": project_id, "description": text,
+        "activity_description": text, "date": event_date,
+        "location": str(payload.get("location_label") or "").strip() or None,
+        "observed_progress": float(progress_match.group(1)) if progress_match else None,
+        "quantity": float(quantity_match.group(1)) if quantity_match else None,
+        "unit": quantity_match.group(2) if quantity_match else None,
+        "source_file": "Editable field event card", "security_state": "clean",
+    }
+    info = event_model.classify_event(draft)
+    canonical = reality_graph.canonical_observation(draft)
+    suggested_state = info.get("state") if info.get("state") in _EVENT_STATES else "progress"
+    candidates: list[dict] = []
+    if db.q1("SELECT uid FROM activities WHERE project_id=? AND COALESCE(is_summary,0)=0 LIMIT 1",
+             [project_id]):
+        search = retrieval_engine.hybrid_search(project_id, draft, top_k=5,
+                                                ensure_index=True)
+        for candidate in search.get("candidates") or []:
+            activity = candidate.get("activity") or {}
+            candidates.append({
+                "uid": activity.get("uid"), "display_id": activity.get("display_id"),
+                "name": activity.get("name"), "wbs": activity.get("wbs"),
+                "score": round(float(candidate.get("score") or 0.0), 4),
+                "supporting": (candidate.get("supporting") or [])[:3],
+            })
+    return {
+        "draft": {
+            "event_state": suggested_state, "event_date": event_date,
+            "action": info.get("action") or canonical.get("action"),
+            "observed_progress": draft["observed_progress"],
+            "remaining_days": float(remaining_match.group(1)) if remaining_match else None,
+            "quantity": draft["quantity"], "unit": draft["unit"],
+            "location_label": draft["location"] or
+                              ((canonical.get("locations") or [None])[0]),
+            "asset_tags": [row.get("tag") for row in canonical.get("asset_tags") or []],
+            "confidence": info.get("confidence"),
+        },
+        "activity_candidates": candidates,
+        "notice": "Draft extraction only. A person must edit and confirm the card before it is stored.",
+    }
 
 
 def _float(value: Any, *, minimum: float | None = None,

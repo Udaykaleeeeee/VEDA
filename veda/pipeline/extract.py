@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any
 
 from .. import config, db
-from . import documents
+from . import documents, source_schemas
 from .documents import ExtractionRequired  # re-exported for callers
 
 TABULAR = {".csv", ".tsv"}
@@ -392,6 +392,16 @@ def extract_evidence(project_id: str, f: dict, job_id: str | None = None) -> lis
         headers, rows, _ = read_rows(path, ext)
         if not headers:
             return out
+        schema = source_schemas.classify(headers, f.get("filename", ""))
+        relevance = source_schemas.relevance(
+            schema["document_type"], filename=f.get("filename", ""))
+        db.update("files", f["id"], {
+            "document_type": schema["document_type"],
+            "relevance_state": relevance["state"],
+            "relevance_score": relevance["score"],
+            "relevance_reason": relevance["reason"],
+            "schema_name": schema["schema"], "schema_version": schema["version"],
+        })
         idx = build_header_index(headers)
         heads = [_norm_key(h) for h in headers]
         for n, row in enumerate(rows, start=2):
@@ -401,9 +411,36 @@ def extract_evidence(project_id: str, f: dict, job_id: str | None = None) -> lis
                 row = row[:-1]
             if not any(str(c).strip() for c in row):
                 continue
-            desc = _get(row, idx, "description")
-            ref = _get(row, idx, "ref")
-            status = _get(row, idx, "status")
+            typed = source_schemas.canonicalize(headers, row, schema)
+            ref = str(typed.get("record_id") or typed.get("report_no") or
+                      typed.get("ncr_no") or typed.get("receipt_no") or "").strip()
+            status = str(typed.get("status") or "").strip()
+            desc = str(typed.get("description") or "").strip()
+            schema_key = schema.get("key")
+            if schema_key == "welding":
+                weld = str(typed.get("weld_no") or "unidentified weld")
+                desc = ("Welding joint " + weld + " at " +
+                        str(typed.get("location") or typed.get("chainage") or "unspecified location") +
+                        ("; status " + status if status else "") +
+                        ("; NDT " + str(typed.get("ndt_method") or "") + " " +
+                         str(typed.get("ndt_result") or "") if
+                         typed.get("ndt_method") or typed.get("ndt_result") else ""))
+            elif schema_key == "ndt":
+                desc = ("NDT " + str(typed.get("ndt_method") or "inspection") +
+                        " for weld " + str(typed.get("weld_no") or "unidentified") +
+                        ": " + str(typed.get("result") or status or "result not stated") +
+                        ("; " + str(typed.get("comments")) if typed.get("comments") else ""))
+            elif schema_key == "ncr":
+                desc = (str(typed.get("ncr_no") or "NCR") + ": " +
+                        str(typed.get("description") or "non-conformance") +
+                        ("; corrective action " + str(typed.get("action"))
+                         if typed.get("action") else ""))
+            elif schema_key == "materials":
+                desc = ("Material receipt " + str(typed.get("receipt_no") or "") + ": " +
+                        str(typed.get("material") or "material") +
+                        ("; heat/lot " + str(typed.get("heat_no")) if typed.get("heat_no") else "") +
+                        ("; status " + status if status else "") +
+                        ("; " + str(typed.get("comments")) if typed.get("comments") else ""))
             if not desc:
                 # Build a readable line from whatever the row does carry.
                 parts = []
@@ -412,42 +449,43 @@ def extract_evidence(project_id: str, f: dict, job_id: str | None = None) -> lis
                             "date", "crew", "contractor", "unit"):
                         parts.append(str(headers[i]) + "=" + str(row[i]).strip())
                 desc = "; ".join(parts[:8])
-            disc = _get(row, idx, "discipline") or guess_discipline(
+            disc = str(typed.get("discipline") or "") or _get(row, idx, "discipline") or guess_discipline(
                 desc, f.get("filename", ""), ref)
-            loc = _get(row, idx, "location")
+            loc = str(typed.get("location") or "") or _get(row, idx, "location")
             locator = ("sheet " + sheet + ", row " + str(n)) if sheet \
                 else ("row " + str(n))
             item = {
                 "project_id": project_id, "file_id": f["id"], "job_id": job_id,
                 "source_file": f.get("filename"), "locator": locator,
-                "date": norm_date(_get(row, idx, "date")),
-                "author": _get(row, idx, "author") or None,
-                "contractor": _get(row, idx, "contractor") or None,
-                "crew": _get(row, idx, "crew") or None,
+                "date": norm_date(str(typed.get("date") or _get(row, idx, "date"))),
+                "author": str(typed.get("author") or "") or _get(row, idx, "author") or None,
+                "contractor": str(typed.get("contractor") or "") or _get(row, idx, "contractor") or None,
+                "crew": str(typed.get("crew") or "") or _get(row, idx, "crew") or None,
                 "discipline": disc or None,
                 "location": loc or None,
-                "chainage": _get(row, idx, "chainage") or None,
-                "quantity": _num(_get(row, idx, "quantity")),
-                "unit": _get(row, idx, "unit") or None,
+                "chainage": str(typed.get("chainage") or "") or _get(row, idx, "chainage") or None,
+                "quantity": _num(str(typed.get("quantity") or _get(row, idx, "quantity"))),
+                "unit": str(typed.get("unit") or "") or _get(row, idx, "unit") or None,
                 "description": (ref + ": " if ref else "") + desc[:900],
-                "observed_progress": _num(_get(row, idx, "progress")),
-                "confidence": 0.55,
-                "state": "new",
+                "observed_progress": _num(str(typed.get("progress") or _get(row, idx, "progress"))),
+                "confidence": schema["confidence"],
+                "state": documents.STATE_BY_TYPE.get(schema["observation_type"], "new"),
                 "security_state": f.get("security_state", "clean"),
-                "raw_json": db.jdumps(dict(zip(headers, row))),
+                "raw_json": db.jdumps({"source": dict(zip(headers, row)), "typed": typed,
+                                        "source_schema": schema["schema"],
+                                        "source_schema_version": schema["version"]}),
                 "provenance": source_provenance,
             }
             if status:
                 item["raw_json"] = db.jdumps({**db.jloads(item["raw_json"], {}),
                                               "_status": status})
-            # A tabular tracker row is an atomic activity-progress observation.
-            item["observation_type"] = documents.OBS_ACTIVITY_PROGRESS
-            item["document_type"] = documents.DOC_EXCEL_PROGRESS_REGISTER
+            item["observation_type"] = schema["observation_type"]
+            item["document_type"] = schema["document_type"]
             item["section"] = ("sheet:" + sheet) if sheet else "rows"
             item["row_index"] = n
             item["raw_text"] = " | ".join(str(c) for c in row)[:2000]
             item["extraction_method"] = "tabular"
-            item["extraction_confidence"] = 0.75
+            item["extraction_confidence"] = schema["confidence"]
             item["observation_key"] = documents._obs_key(
                 f.get("sha256") or f.get("id") or "", 1,
                 item["section"], n, item["description"])
@@ -465,6 +503,11 @@ def extract_evidence(project_id: str, f: dict, job_id: str | None = None) -> lis
 
     chat = _parse_chat_messages(text)
     if chat:
+        rel = source_schemas.relevance("CHAT_EXPORT", filename=f.get("filename", ""), text=text)
+        db.update("files", f["id"], {"document_type": "CHAT_EXPORT",
+                  "relevance_state": rel["state"], "relevance_score": rel["score"],
+                  "relevance_reason": rel["reason"], "schema_name": "CHAT_EXPORT",
+                  "schema_version": source_schemas.SCHEMA_VERSION})
         for i, (stamp, who, msg) in enumerate(chat, start=1):
             out.append({
                 "project_id": project_id, "file_id": f["id"], "job_id": job_id,
@@ -487,6 +530,17 @@ def extract_evidence(project_id: str, f: dict, job_id: str | None = None) -> lis
         return out
 
     decomposed = documents.decompose(project_id, f, job_id)
+    rel = source_schemas.relevance(
+        decomposed["document_type"], filename=f.get("filename", ""), text=text)
+    db.update("files", f["id"], {
+        "document_type": decomposed["document_type"],
+        "relevance_state": rel["state"], "relevance_score": rel["score"],
+        "relevance_reason": rel["reason"],
+        "schema_name": decomposed["document_type"],
+        "schema_version": source_schemas.SCHEMA_VERSION,
+    })
+    if rel["state"] == "reference":
+        return out
     for obs in decomposed["observations"]:
         obs.setdefault("raw_json", obs.get("raw_values_json") or "{}")
         obs.setdefault("confidence", obs.get("extraction_confidence") or 0.4)
@@ -546,6 +600,16 @@ def _extract_json(project_id: str, f: dict, job_id, text: str, provenance: str =
         return []
     rows = data if isinstance(data, list) else \
         next((v for v in data.values() if isinstance(v, list)), [])
+    first = next((row for row in rows if isinstance(row, dict)), {})
+    schema = source_schemas.classify(list(first), f.get("filename", ""))
+    rel = source_schemas.relevance(schema["document_type"],
+                                   filename=f.get("filename", ""), text=text[:4000])
+    db.update("files", f["id"], {"document_type": schema["document_type"],
+              "relevance_state": rel["state"], "relevance_score": rel["score"],
+              "relevance_reason": rel["reason"], "schema_name": schema["schema"],
+              "schema_version": schema["version"]})
+    if rel["state"] == "reference":
+        return []
     out = []
     for i, r in enumerate(rows[:5000], start=1):
         if not isinstance(r, dict):
@@ -573,8 +637,8 @@ def _extract_json(project_id: str, f: dict, job_id, text: str, provenance: str =
             "confidence": 0.5, "state": "new",
             "security_state": f.get("security_state", "clean"),
             "raw_json": db.jdumps(r), "provenance": provenance,
-            "observation_type": documents.OBS_ACTIVITY_PROGRESS,
-            "document_type": "JSON_REGISTER", "section": "items", "row_index": i,
+            "observation_type": schema["observation_type"],
+            "document_type": schema["document_type"], "section": "items", "row_index": i,
             "raw_text": db.jdumps(r)[:2000], "extraction_method": "json",
             "observation_key": documents._obs_key(
                 f.get("sha256") or f.get("id") or "", 1, "items", i,

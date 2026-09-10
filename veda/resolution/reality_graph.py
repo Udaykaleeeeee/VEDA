@@ -277,6 +277,15 @@ def stream_events(observations: list[dict]) -> dict:
 def persist_relation(project_id: str, execution_event_id: str, relation: dict) -> None:
     """Persist set-valued event-to-schedule relations for audit/memory."""
     for uid in relation.get("uids") or [None]:
+        existing = db.q1(
+            "SELECT id FROM execution_event_links WHERE execution_event_id=? "
+            "AND relation=? AND ((activity_uid IS NULL AND ? IS NULL) OR activity_uid=?)",
+            [execution_event_id, relation.get("relation") or REL_AMBIGUOUS, uid, uid])
+        if existing:
+            db.update("execution_event_links", existing["id"], {
+                "confidence": relation.get("confidence"),
+                "basis": relation.get("reason")})
+            continue
         db.insert("execution_event_links", {
             "project_id": project_id,
             "execution_event_id": execution_event_id,

@@ -1,19 +1,19 @@
-"""LocalAntigravityProvider - bridge to the running Antigravity IDE agent.
-
-Instead of calling any external API, this provider writes the job context to
-an inbox table and waits for the Antigravity agent (already running in the IDE)
-to pick it up, reason about it, and post the result back.
-
-No API key needed. The agent is already authenticated and running.
-"""
+"""Bridge VEDA to the already-running Antigravity desktop agent."""
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import queue
+import re
+import shutil
+import subprocess
 import threading
 import time
+import uuid
+from pathlib import Path
 from typing import AsyncIterator
+from urllib.parse import unquote, urlparse
 
 from .. import config, db
 from .base import AgentEvent, AgentProvider, AgentSession
@@ -34,9 +34,235 @@ POLL_MIN = 0.05
 POLL_MAX = 1.0
 POLL_GROWTH = 1.6
 
+CONSUMER_TTL = max(5.0, float(CLAIM_TIMEOUT) * 3.0)
+_CONSUMER_LAST_SEEN = 0.0
+DIRECT_CLAIM_TIMEOUT = max(30, CLAIM_TIMEOUT)
+_RUNTIME_CACHE: tuple[float, dict] | None = None
+_RUNTIME_LOCK = threading.Lock()
+_RUNTIME_TTL = 15.0
+
 # inbox_id -> Event.  Set by notify() from the API layer.
 _SIGNALS: dict = {}
 _SIGNAL_LOCK = threading.Lock()
+
+
+def consumer_seen() -> None:
+    global _CONSUMER_LAST_SEEN
+    _CONSUMER_LAST_SEEN = time.monotonic()
+
+
+def consumer_connected() -> bool:
+    return (time.monotonic() - _CONSUMER_LAST_SEEN) <= CONSUMER_TTL
+
+
+def _creation_flags() -> int:
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def _standard_agentapi_executable() -> str | None:
+    explicit = str(os.environ.get("ANTIGRAVITY_AGENTAPI_EXE") or "").strip().strip('"')
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit))
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidates.append(
+            Path(local) / "Programs" / "Antigravity" / "resources" / "bin" /
+            "language_server.exe")
+    candidates.append(
+        Path.home() / "AppData" / "Local" / "Programs" / "Antigravity" /
+        "resources" / "bin" / "language_server.exe")
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return str(candidate.resolve())
+        except OSError:
+            continue
+    return shutil.which("language_server") or shutil.which("language_server.exe")
+
+
+def _agentapi_project_id(cwd: str) -> str:
+    requested = Path(cwd).resolve()
+    project_dir = Path.home() / ".gemini" / "config" / "projects"
+    matches: list[tuple[int, str]] = []
+    try:
+        descriptors = list(project_dir.glob("*.json"))
+    except OSError:
+        descriptors = []
+    for descriptor in descriptors:
+        try:
+            data = json.loads(descriptor.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        project_id = str(data.get("id") or "").strip()
+        resources = ((data.get("projectResources") or {}).get("resources") or [])
+        for resource in resources:
+            uri = str((resource or {}).get("folderUri") or "")
+            if not project_id or not uri.lower().startswith("file:"):
+                continue
+            parsed = urlparse(uri)
+            raw_path = unquote(parsed.path or "")
+            if os.name == "nt" and re.match(r"^/[A-Za-z]:", raw_path):
+                raw_path = raw_path[1:]
+            try:
+                root = Path(raw_path).resolve()
+                requested.relative_to(root)
+            except (OSError, ValueError):
+                continue
+            matches.append((len(root.parts), project_id))
+    if matches:
+        return max(matches, key=lambda item: item[0])[1]
+    return str(requested)
+
+
+def _agentapi_call(runtime: dict, args: list[str], *, cwd: str | None = None,
+                   timeout: float = 20.0) -> dict:
+    env = dict(os.environ)
+    env["ANTIGRAVITY_AGENTAPI_EXE"] = runtime["exe"]
+    env["ANTIGRAVITY_LS_ADDRESS"] = runtime["address"]
+    env["ANTIGRAVITY_CSRF_TOKEN"] = runtime["token"]
+    if cwd:
+        env["ANTIGRAVITY_PROJECT_ID"] = _agentapi_project_id(cwd)
+    proc = subprocess.run(
+        [runtime["exe"], "agentapi", *args],
+        cwd=cwd or str(config.ROOT), env=env, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=timeout, check=False,
+        creationflags=_creation_flags())
+    raw = (proc.stdout or "").strip()
+    if not raw:
+        detail = (proc.stderr or "").strip()
+        raise RuntimeError(detail[:600] or "Antigravity Agent API returned no response")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Antigravity Agent API returned invalid JSON: " +
+                           raw[:400]) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("Antigravity Agent API returned an invalid response")
+    return payload
+
+
+def _injected_runtime() -> dict | None:
+    exe = _standard_agentapi_executable()
+    address = str(os.environ.get("ANTIGRAVITY_LS_ADDRESS") or "").strip()
+    token = str(os.environ.get("ANTIGRAVITY_CSRF_TOKEN") or "").strip()
+    if exe and address and token:
+        return {"exe": exe, "address": address, "token": token}
+    return None
+
+
+def _windows_runtime_candidates() -> list[dict]:
+    if os.name != "nt":
+        return []
+    powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+    if not powershell:
+        return []
+    script = r'''
+$rows = foreach ($p in Get-CimInstance Win32_Process -Filter "Name = 'language_server.exe'") {
+  $m = [regex]::Match($p.CommandLine, '--csrf_token(?:=|\s+)(?:"(?<q>[^"]+)"|(?<u>\S+))')
+  if (-not $m.Success) { continue }
+  $token = if ($m.Groups['q'].Success) { $m.Groups['q'].Value } else { $m.Groups['u'].Value }
+  $ports = @(Get-NetTCPConnection -OwningProcess $p.ProcessId -State Listen -ErrorAction SilentlyContinue |
+    Where-Object { $_.LocalAddress -in @('127.0.0.1', '::1') } |
+    Sort-Object LocalPort | Select-Object -ExpandProperty LocalPort -Unique)
+  if ($ports.Count -gt 0) {
+    [pscustomobject]@{ exe = $p.ExecutablePath; token = $token; ports = $ports }
+  }
+}
+ConvertTo-Json -InputObject @($rows) -Compress -Depth 4
+'''
+    try:
+        proc = subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=10, check=False, creationflags=_creation_flags())
+        rows = json.loads((proc.stdout or "[]").strip() or "[]")
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return []
+    if isinstance(rows, dict):
+        rows = [rows]
+    candidates: list[dict] = []
+    for row in rows if isinstance(rows, list) else []:
+        exe = str((row or {}).get("exe") or _standard_agentapi_executable() or "")
+        token = str((row or {}).get("token") or "")
+        ports = (row or {}).get("ports") or []
+        if isinstance(ports, (str, int)):
+            ports = [ports]
+        if not exe or not token:
+            continue
+        for port in reversed(ports):
+            candidates.append({"exe": exe, "address": "127.0.0.1:" + str(port),
+                               "token": token})
+    return candidates
+
+
+def _runtime_works(runtime: dict) -> bool:
+    try:
+        payload = _agentapi_call(
+            runtime, ["get-conversation-metadata", "veda-health-" + uuid.uuid4().hex],
+            timeout=8.0)
+    except (OSError, subprocess.SubprocessError, RuntimeError):
+        return False
+    error = str(payload.get("error") or "").lower()
+    return not error or "trajectory not found" in error
+
+
+def _discover_runtime(*, force: bool = False) -> dict | None:
+    global _RUNTIME_CACHE
+    with _RUNTIME_LOCK:
+        now = time.monotonic()
+        if (not force and _RUNTIME_CACHE is not None and
+                now - _RUNTIME_CACHE[0] <= _RUNTIME_TTL):
+            return dict(_RUNTIME_CACHE[1])
+        injected = _injected_runtime()
+        candidates = ([injected] if injected else []) + _windows_runtime_candidates()
+        seen: set[tuple[str, str]] = set()
+        for candidate in candidates:
+            if not candidate:
+                continue
+            key = (candidate["exe"], candidate["address"])
+            if key in seen:
+                continue
+            seen.add(key)
+            if _runtime_works(candidate):
+                _RUNTIME_CACHE = (now, dict(candidate))
+                return dict(candidate)
+        _RUNTIME_CACHE = None
+        return None
+
+
+def _callback_prompt(inbox_id: str) -> str:
+    base = config.LOCAL_ANTIGRAVITY_CALLBACK_URL
+    item_url = base + "/api/agent/inbox/item/" + inbox_id
+    result_url = base + "/api/agent/result"
+    return f"""You are the local reasoning worker for VEDA.
+
+A VEDA job is waiting at GET {item_url}
+
+Fetch it now. Follow its system_prompt and prompt, return the supplied schema,
+and use POST {base}/api/agent/tool only when the job needs VEDA project facts.
+When finished, POST JSON to {result_url} with this exact envelope:
+{{"inbox_id":"{inbox_id}","result":<your final JSON>,"events":[]}}
+
+Do not only reply in the desktop conversation. The job is complete only after
+the callback returns ok=true. Do not edit files."""
+
+
+def _reasoning_mode(prompt: str, config_hint: dict | None = None) -> str:
+    hinted = str((config_hint or {}).get("veda_reasoning_mode") or "").lower()
+    if hinted in ("fast", "deep"):
+        return hinted
+    if "[VEDA_REASONING_MODE:FAST]" in str(prompt or ""):
+        return "fast"
+    return "deep"
+
+
+def _desktop_model(mode: str) -> str:
+    requested = (config.LOCAL_ANTIGRAVITY_FAST_MODEL if mode == "fast" else
+                 config.LOCAL_ANTIGRAVITY_DEEP_MODEL)
+    if requested in ("flash_lite", "flash", "pro"):
+        return requested
+    return "flash_lite" if mode == "fast" else "pro"
 
 
 def _signal_for(inbox_id: str) -> threading.Event:
@@ -77,6 +303,7 @@ class LocalAntigravityProvider(AgentProvider):
       4. stream_events() finds the result in the outbox and yields it
     """
     name = "local_antigravity"
+    model = "adaptive"
 
     def __init__(self):
         self._sessions: dict = {}
@@ -84,13 +311,25 @@ class LocalAntigravityProvider(AgentProvider):
         self._cancel: dict = {}
 
     async def health(self) -> dict:
+        runtime = await asyncio.to_thread(_discover_runtime)
+        direct = runtime is not None
+        manual = consumer_connected()
+        connected = direct or manual
         return {
-            "ok": True,
+            "ok": connected,
             "provider": self.name,
-            "model": "Antigravity IDE (local agent)",
-            "note": "Local Antigravity inbox bridge is enabled. An IDE agent "
-                    "must claim pending inbox work; otherwise VEDA falls back "
-                    "without blocking the global queue.",
+            "model": ("Adaptive: " + config.LOCAL_ANTIGRAVITY_FAST_MODEL +
+                      " chat / " + config.LOCAL_ANTIGRAVITY_DEEP_MODEL +
+                      " project"),
+            "error": None if connected else
+                     "The running desktop reasoning agent could not be reached.",
+            "connection": ("desktop_agentapi" if direct else
+                           "manual_inbox" if manual else None),
+            "note": ("Connected directly to the running desktop agent."
+                     if direct else
+                     "A manual inbox consumer is connected."
+                     if manual else
+                     "Open the desktop reasoning app and keep it running, then retry."),
         }
 
     async def start_session(self, *, project_id: str, job_id: str, prompt: str,
@@ -99,10 +338,15 @@ class LocalAntigravityProvider(AgentProvider):
                             allowed_tools: list | None = None,
                             workspace: str | None = None) -> AgentSession:
         sid = db.new_id("la_")
+        mode = _reasoning_mode(prompt, mcp_config)
+        selected_model = _desktop_model(mode)
         session = AgentSession(
             session_id=sid, external_id=sid, provider=self.name,
-            model="local_antigravity",
-            meta={"project_id": project_id, "job_id": job_id})
+            model=selected_model,
+            meta={"project_id": project_id, "job_id": job_id,
+                  "workspace": workspace or str(config.ROOT),
+                  "reasoning_mode": mode,
+                  "desktop_model": selected_model})
 
         # Write to inbox so the Antigravity agent can pick it up
         inbox_id = db.insert("agent_inbox", {
@@ -122,13 +366,18 @@ class LocalAntigravityProvider(AgentProvider):
         self._queues[sid] = q
         self._cancel[sid] = False
         threading.Thread(target=self._wait_for_result,
-                         args=(session, inbox_id, q), daemon=True).start()
+                         args=(session, inbox_id, q, False), daemon=True).start()
         return session
 
     async def resume_session(self, session: AgentSession, prompt: str, *,
                              schema: dict | None = None) -> AgentSession:
         self._sessions.setdefault(session.session_id, session)
         meta = session.meta
+        mode = _reasoning_mode(prompt)
+        selected_model = _desktop_model(mode)
+        meta["reasoning_mode"] = mode
+        meta["desktop_model"] = selected_model
+        session.model = selected_model
         inbox_id = db.insert("agent_inbox", {
             "project_id": meta.get("project_id", ""),
             "job_id": meta.get("job_id", ""),
@@ -143,7 +392,7 @@ class LocalAntigravityProvider(AgentProvider):
         self._queues[session.session_id] = q
         self._cancel[session.session_id] = False
         threading.Thread(target=self._wait_for_result,
-                         args=(session, inbox_id, q), daemon=True).start()
+                         args=(session, inbox_id, q, True), daemon=True).start()
         return session
 
     async def submit_event(self, session: AgentSession, event: dict) -> None:
@@ -158,16 +407,73 @@ class LocalAntigravityProvider(AgentProvider):
                 "status": "cancelled", "finished_at": db.now()})
             notify(inbox_id)
 
+    def _dispatch(self, session: AgentSession, inbox_id: str,
+                  resume: bool) -> str:
+        runtime = _discover_runtime()
+        if runtime is None:
+            raise RuntimeError("The running desktop Agent API is unavailable")
+        workspace = str(session.meta.get("workspace") or config.ROOT)
+        if not Path(workspace).is_dir():
+            workspace = str(config.ROOT)
+        message = _callback_prompt(inbox_id)
+        selected_model = str(session.meta.get("desktop_model") or
+                             _desktop_model("deep"))
+
+        def call(selected: dict) -> dict:
+            return _agentapi_call(
+                selected,
+                ["new-conversation", "--model=" + selected_model,
+                 "--title=" + ("VEDA follow-up" if resume else
+                               "VEDA project reasoning"), message], cwd=workspace)
+
+        payload = call(runtime)
+        if payload.get("error"):
+            runtime = _discover_runtime(force=True)
+            if runtime is None:
+                raise RuntimeError(str(payload.get("error"))[:500])
+            payload = call(runtime)
+        if payload.get("error"):
+            raise RuntimeError(str(payload.get("error"))[:500])
+        response = payload.get("response") or {}
+        created = response.get("newConversation") or {}
+        conversation_id = str(created.get("conversationId") or "").strip()
+        if not conversation_id:
+            raise RuntimeError("Desktop agent did not return a conversation id")
+        session.external_id = conversation_id
+        return conversation_id
+
     def _wait_for_result(self, session: AgentSession, inbox_id: str,
-                         q: queue.Queue) -> None:
-        """Poll the outbox until the Antigravity agent posts a result."""
-        q.put(AgentEvent("status", step="agent_started",
-                         label="Job queued for Antigravity IDE agent",
-                         data={"session_id": session.session_id,
-                               "inbox_id": inbox_id,
-                               "model": "local_antigravity"}))
+                         q: queue.Queue, resume: bool) -> None:
+        """Dispatch to the desktop agent, then wait for its local callback."""
+        direct = False
+        try:
+            conversation_id = self._dispatch(session, inbox_id, resume)
+            direct = True
+            q.put(AgentEvent(
+                "status", step="agent_started",
+                label="Project context sent to reasoning service",
+                data={"session_id": session.session_id,
+                      "inbox_id": inbox_id,
+                      "model": session.model,
+                      "external_id": conversation_id}))
+        except Exception as exc:  # noqa: BLE001
+            if consumer_connected():
+                q.put(AgentEvent(
+                    "status", step="agent_started",
+                    label="Project context queued for reasoning service",
+                    data={"session_id": session.session_id,
+                          "inbox_id": inbox_id, "model": session.model}))
+            else:
+                db.update("agent_inbox", inbox_id, {
+                    "status": "timeout", "finished_at": db.now()})
+                q.put(AgentEvent(
+                    "error", label="Desktop reasoning dispatch failed: " +
+                    str(exc)[:500]))
+                _release_signal(inbox_id)
+                q.put(None)
+                return
         started = time.time()
-        claim_deadline = started + CLAIM_TIMEOUT
+        claim_deadline = started + (DIRECT_CLAIM_TIMEOUT if direct else CLAIM_TIMEOUT)
         result_deadline = started + INBOX_TIMEOUT
         claimed = False
         processing_announced = False
@@ -204,7 +510,7 @@ class LocalAntigravityProvider(AgentProvider):
                                   "structured": None,
                                   "is_error": False, "turns": 1,
                                   "cost_usd": 0.0,
-                                  "external_id": session.session_id}))
+                                  "external_id": session.external_id}))
                     db.update("agent_inbox", inbox_id, {
                         "status": "done", "finished_at": db.now()})
                     break
@@ -228,10 +534,11 @@ class LocalAntigravityProvider(AgentProvider):
                 # deterministic fallback can finish this job and release the
                 # next queued project.
                 if not claimed and time.time() >= claim_deadline:
+                    claim_limit = DIRECT_CLAIM_TIMEOUT if direct else CLAIM_TIMEOUT
                     q.put(AgentEvent(
                         "error",
-                        label=("Antigravity IDE agent did not claim this job within "
-                               + str(CLAIM_TIMEOUT) +
+                        label=("Reasoning service did not claim this job within "
+                               + str(claim_limit) +
                                "s; releasing the VEDA worker.")))
                     db.update("agent_inbox", inbox_id, {
                         "status": "timeout", "finished_at": db.now()})

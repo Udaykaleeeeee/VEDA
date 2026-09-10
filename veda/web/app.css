@@ -1651,9 +1651,15 @@ html[data-theme="light"] .ask-error b { color: #A62F2A; }
   border: 1px solid var(--line-2); color: var(--ink); }
 .capture-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px;
   gap: 16px; align-items: start; }
-.capture-composer { overflow: hidden; border: 1px solid var(--line-2); background: linear-gradient(180deg, var(--surface-2), var(--surface));
+.capture-composer { overflow: hidden; border: 1px solid var(--line-2); background: linear-gradient(180deg, var(--surface-2), var(--surface)); display:flex; flex-direction:column;
   box-shadow: var(--raise); }
 .capture-section { padding: 20px; border-bottom: 1px solid var(--line); }
+.capture-source-section { order: 1; }
+.capture-structured-section { order: 2; }
+.capture-confirm-section { order: 3; }
+.capture-extract { margin-top: 12px; width: 100%; }
+.capture-extracted-summary { display:flex; flex-wrap:wrap; gap:7px; margin:0 0 14px; }
+.capture-extracted-summary span { padding:5px 9px; border:1px solid var(--line); border-radius:999px; color:var(--ink-2); font-size:12px; background:var(--surface-2); }
 .capture-section:last-child { border-bottom: 0; }
 .capture-step { display: flex; align-items: center; gap: 11px; margin-bottom: 15px; }
 .capture-step > span { display: grid; place-items: center; width: 29px; height: 29px;

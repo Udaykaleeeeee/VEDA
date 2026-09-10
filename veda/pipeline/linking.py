@@ -20,6 +20,7 @@ from typing import Any, Callable
 from .. import db, reviews
 from ..retrieval import engine as retrieval_engine, calibration
 from ..resolution import events as event_model, risk as risk_policy
+from ..resolution import reality_graph
 from . import validators
 
 STOP = {"the", "and", "for", "with", "of", "to", "in", "on", "at", "a", "an",
@@ -43,7 +44,7 @@ def _d(v: Any):
         return None
 
 
-_RESOLVABLE_OBS = {"activity_progress", "general"}
+_RESOLVABLE_OBS = {"activity_progress", "general", "quality_gate", "material"}
 
 # Light, generic shorthand folding so a field line and a schedule activity name
 # that mean the same thing normalise to the same string.  No project-specific
@@ -271,23 +272,24 @@ def cluster_key_for(ev: dict, cands: list) -> tuple:
 
 
 
-def _upsert_execution_event(project_id: str, ev: dict, cand: dict, event_info: dict,
-                            cal: dict) -> str | None:
+def _upsert_execution_event(project_id: str, ev: dict, cand: dict | None,
+                            event_info: dict, cal: dict,
+                            relation: dict | None = None) -> str:
     """Create/deduplicate the canonical execution-event layer.
 
     Source observations remain immutable evidence.  Multiple DPR/diary/voice
     records can corroborate one canonical event without becoming duplicate
     schedule updates.
     """
-    if event_info.get("state") not in {"start", "progress", "finish"}:
-        return None
-    uid = int(cand["activity"]["uid"])
-    action = str(event_info.get("action") or "activity")
-    state = str(event_info.get("state") or "observation")
-    day = str(ev.get("date") or "unknown")
-    progress = event_info.get("progress")
-    bucket = "" if progress is None else f"|p={round(float(progress),1)}"
-    key = f"{uid}|{action}|{state}|{day}{bucket}"
+    relation = relation or reality_graph.relation_hypothesis(
+        project_id, ev, [cand] if cand else [])
+    uids = [int(uid) for uid in relation.get("uids") or [] if uid is not None]
+    uid = uids[0] if len(uids) == 1 else None
+    obs = relation.get("observation") or reality_graph.canonical_observation(ev)
+    action = str(obs.get("action") or event_info.get("action") or "observation")
+    state = str(obs.get("state") or event_info.get("state") or "observation")
+    progress = obs.get("progress")
+    key = reality_graph.canonical_key(obs)
     row = db.q1("SELECT * FROM execution_events WHERE project_id=? AND canonical_key=?", [project_id, key])
     prob = float(cal.get("probability") or 0.0)
     if row:
@@ -304,7 +306,8 @@ def _upsert_execution_event(project_id: str, ev: dict, cand: dict, event_info: d
     if not exists:
         try:
             trust = next((c.get("detail",{}).get("trust") for c in validators.validate_link(
-                ev, cand["activity"], project_id=project_id).get("checks",[]) if c.get("name")=="source_trust"), None)
+                ev, cand["activity"], project_id=project_id).get("checks",[])
+                if c.get("name")=="source_trust"), None) if cand else None
         except Exception:
             trust = None
         db.insert("execution_event_sources", {"project_id": project_id, "execution_event_id": eid,
@@ -312,6 +315,7 @@ def _upsert_execution_event(project_id: str, ev: dict, cand: dict, event_info: d
                   "locator": ev.get("locator"), "source_trust": trust})
     n = (db.q1("SELECT COUNT(*) c FROM execution_event_sources WHERE execution_event_id=?", [eid]) or {}).get("c",0)
     db.update("execution_events", eid, {"source_count": n, "confidence": prob, "updated_at": db.now()})
+    reality_graph.persist_relation(project_id, eid, relation)
     return eid
 
 
@@ -345,7 +349,7 @@ def link_evidence(project_id: str, *, job_id: str | None = None,
         evidence_rows = db.q(
             "SELECT * FROM evidence WHERE project_id=? AND state IN "
             "('new','processing','needs_review') AND (observation_type IS NULL "
-            "OR observation_type IN ('activity_progress','general'))", [project_id])
+            "OR observation_type IN ('activity_progress','general','quality_gate','material'))", [project_id])
     else:
         evidence_rows = [e for e in evidence_rows if (e.get("observation_type") or
                          "activity_progress") in _RESOLVABLE_OBS]
@@ -417,8 +421,13 @@ def link_evidence(project_id: str, *, job_id: str | None = None,
         if exact_act is not None:
             cands = _promote_exact_identity(cands, exact_act, ev)
 
+        graph_relation = reality_graph.relation_hypothesis(project_id, ev, cands)
+
         if not cands:
-            db.update("evidence", ev["id"], {"state": "needs_review"})
+            with db.transaction():
+                db.update("evidence", ev["id"], {"state": "needs_review"})
+                _upsert_execution_event(project_id, ev, None, event_info,
+                                        {"probability": 0.0}, graph_relation)
             stats["unresolved"] += 1
             _add_cluster(clusters, ev, cands)
             continue
@@ -472,6 +481,16 @@ def link_evidence(project_id: str, *, job_id: str | None = None,
                 stats["non_progress"] += 1
             _add_cluster(clusters, ev, cands)
 
+        if graph_relation.get("relation") in {
+                reality_graph.REL_AGGREGATES, reality_graph.REL_SPLIT_ACROSS,
+                reality_graph.REL_AMBIGUOUS, reality_graph.REL_NEW_SCOPE}:
+            if state == "linked":
+                stats["linked"] = max(0, stats["linked"] - 1)
+                stats["needs_review"] += 1
+                _add_cluster(clusters, ev, cands)
+            state, relation, is_cand = "needs_review", \
+                str(graph_relation.get("relation") or "AMBIGUOUS").lower(), 1
+
         best_features = dict(best.get("features") or {})
         # Keep pre-Meta retrieval diagnostics distinct from final MetaRank score.
         # MetaRank's public score is deliberately a bounded ranking margin, not
@@ -520,8 +539,8 @@ def link_evidence(project_id: str, *, job_id: str | None = None,
             } for alt in cands[1:4]])
             db.update("evidence", ev["id"], {"state": state,
                      "confidence": float(cal.get("probability") or 0.0)})
-            if state == "linked":
-                _upsert_execution_event(project_id, ev, best, event_info, cal)
+            _upsert_execution_event(project_id, ev, best, event_info, cal,
+                                    graph_relation)
 
     checkpoint()
     report("resolver_validating",

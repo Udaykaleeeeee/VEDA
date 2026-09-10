@@ -25,6 +25,12 @@ def _warm_reasoning_runtime() -> None:
         meta_router.warmup_models()
 
 
+def _warm_local_chat() -> None:
+    with contextlib.suppress(Exception):
+        from .agent import local_chat
+        local_chat.warmup()
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     config.ensure_dirs()
@@ -32,6 +38,8 @@ async def lifespan(app: FastAPI):
     jobs.start_worker()
     threading.Thread(target=_warm_reasoning_runtime, daemon=True,
                      name="veda-retrieval-warmup").start()
+    threading.Thread(target=_warm_local_chat, daemon=True,
+                     name="veda-local-chat-warmup").start()
     yield
     with contextlib.suppress(Exception):
         from .mcpc import horizun

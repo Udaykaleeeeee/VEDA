@@ -8,16 +8,34 @@ Run:  .venv\\Scripts\\python.exe tools\\verify_slice.py
 from __future__ import annotations
 
 import sys
+import os
+import tempfile
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+_TEMP_DATA = None
+if not os.environ.get("VEDA_DATA_DIR"):
+    _TEMP_DATA = tempfile.TemporaryDirectory(prefix="veda_verify_slice_")
+    os.environ["VEDA_DATA_DIR"] = _TEMP_DATA.name
 
 from veda import db, events, jobs  # noqa: E402
 from veda.pipeline import ingest  # noqa: E402
 
 SAMPLES = ROOT / "sample_data"
+DEMO_SOURCE_NAMES = {
+    "TransRidge_Section4_Schedule.xml",
+    "DPR_June_2025.csv",
+    "QAQC_NCR_Log.csv",
+    "site_chat_export.txt",
+    "Weekly_Site_Report_W26.txt",
+    "Welding_Register.csv",
+}
+DEMO_EXTRA_SOURCES = (
+    SAMPLES / "demo" / "NDT_Execution_Proof_Demo.csv",
+    SAMPLES / "demo" / "Material_Receiving_Report.csv",
+)
 
 
 def line(title: str) -> None:
@@ -30,7 +48,6 @@ def main() -> None:
     db.init_db()
 
     line("1. CREATE PROJECT")
-    db.ex("DELETE FROM projects")
     pid = db.insert("projects", {
         "name": "Trans-Ridge 24in Pipeline - Section 4",
         "client": "Ridgeline Energy", "location": "Section 4, CH 0+000 to 24+000",
@@ -41,9 +58,9 @@ def main() -> None:
 
     line("2. UPLOAD SCHEDULE + PROJECT FILES")
     uploaded = []
-    for p in sorted(SAMPLES.iterdir()):
-        if p.name.startswith("_") or p.is_dir():
-            continue
+    selected_sources = [SAMPLES / name for name in sorted(DEMO_SOURCE_NAMES)] + \
+        list(DEMO_EXTRA_SOURCES)
+    for p in selected_sources:
         rec = ingest.store_upload(pid, p.name, p.read_bytes())
         uploaded.append(rec)
         flag = "" if rec["security_state"] == "clean" else \
@@ -148,4 +165,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        db.close()
+        if _TEMP_DATA is not None:
+            _TEMP_DATA.cleanup()

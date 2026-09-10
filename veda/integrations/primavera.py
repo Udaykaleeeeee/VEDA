@@ -114,8 +114,55 @@ def preview_proposal(proposal_id: str) -> dict:
             "approval_state": proposal.get("approval_state"),
             "validation_state": proposal.get("validation_state"),
             "source_event_id": proposal.get("source_event_id"),
+            "read_after_write": True,
+            "percent_type_policy": ("Duration percent only; Physical/Units percent is blocked "
+                                    "until its native P6 basis can be updated safely"),
         },
     }
+
+
+def _rows(payload: Any) -> list[dict]:
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict):
+        for key in ("data", "items", "activities", "Activity"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [row for row in value if isinstance(row, dict)]
+        if payload.get("ObjectId") is not None:
+            return [payload]
+    return []
+
+
+def _read_activity(client: httpx.Client, token: str, object_id: int,
+                   fields: list[str]) -> dict:
+    wanted = list(dict.fromkeys(["ObjectId", "ProjectObjectId",
+                                 "PercentCompleteType", *fields]))
+    response = client.get(
+        config.P6_BASE_URL + "/activity",
+        params={"Fields": ",".join(wanted),
+                "Filter": "ObjectId:eq:" + str(object_id)},
+        headers={"Authorization": "Bearer " + token,
+                 "Accept": "application/json"})
+    response.raise_for_status()
+    rows = _rows(response.json() if response.content else [])
+    if len(rows) != 1:
+        raise RuntimeError("P6 read-back returned " + str(len(rows)) +
+                           " activities for ObjectId " + str(object_id))
+    return rows[0]
+
+
+def _same(field: str, expected: Any, actual: Any) -> bool:
+    if actual is None:
+        return False
+    if field in {"ActualStartDate", "ActualFinishDate"}:
+        return str(expected).split("T")[0] == str(actual).split("T")[0]
+    if field in {"DurationPercentComplete", "RemainingDuration"}:
+        try:
+            return abs(float(expected) - float(actual)) < 0.01
+        except (TypeError, ValueError):
+            return False
+    return str(expected).strip() == str(actual).strip()
 
 
 def write_approved(proposal_id: str, *, p6_project_object_id: str,
@@ -137,18 +184,60 @@ def write_approved(proposal_id: str, *, p6_project_object_id: str,
     if not preview["ready"]:
         raise RuntimeError("; ".join(preview["blockers"]))
     token = _token()
+    object_id = int(preview["body"][0]["ObjectId"])
+    p6_field = next(key for key in preview["body"][0] if key != "ObjectId")
+    expected = preview["body"][0][p6_field]
     with httpx.Client(timeout=60) as client:
+        before = _read_activity(client, token, object_id, [p6_field])
+        if before.get("ProjectObjectId") is not None and \
+                str(before.get("ProjectObjectId")) != str(p6_project_object_id):
+            raise RuntimeError("mapped activity belongs to a different P6 project")
+        if proposal.get("field") == "percentComplete":
+            percent_type = str(before.get("PercentCompleteType") or "").strip().lower()
+            if percent_type != "duration":
+                raise RuntimeError(
+                    "P6 activity percent-complete basis is " +
+                    str(before.get("PercentCompleteType") or "unknown") +
+                    "; VEDA will not write DurationPercentComplete unless P6 explicitly reports Duration")
         response = client.put(
             config.P6_BASE_URL + preview["path"], json=preview["body"],
             headers={"Authorization": "Bearer " + token,
                      "Accept": "application/json", "Content-Type": "application/json"})
         response.raise_for_status()
         result = response.json() if response.content else {}
+        after = _read_activity(client, token, object_id, [p6_field])
+    verified = _same(p6_field, expected, after.get(p6_field))
+    rejected = [] if verified else [{"field": p6_field, "expected": expected,
+                                     "actual": after.get(p6_field)}]
+    db.update("proposals", proposal_id, {
+        "execution_state": "executed", "executed_at": db.now(),
+        "verification_state": "verified" if verified else "failed",
+        "requested_value": str(expected),
+        "resulting_value": None if after.get(p6_field) is None else str(after.get(p6_field)),
+        "verified_fields_json": db.jdumps([p6_field] if verified else []),
+        "rejected_fields_json": db.jdumps(rejected), "updated_at": db.now(),
+    })
+    if not verified:
+        from ..pipeline import conflicts
+        conflicts.upsert(
+            proposal["project_id"], kind="p6_read_after_write_mismatch",
+            detail="P6 accepted the request but the authoritative read-back did not match.",
+            entity_type="proposal", entity_id=proposal_id,
+            activity_uid=proposal.get("target_uid"), field=proposal.get("field"),
+            official_value=after.get(p6_field), observed_value=expected,
+            evidence_ids=db.jloads(proposal.get("evidence_ids_json"), []) or [],
+            source_event_id=proposal.get("source_event_id"),
+            proposal_group_id=proposal.get("proposal_group_id"))
     audit.record(
         proposal["project_id"], actor=actor, actor_type="human",
         action="primavera_activity_write", source="p6_rest_sandbox",
         entity_type="proposal", entity_id=proposal_id,
-        approval=proposal.get("approved_by"), result="accepted by P6 sandbox",
+        approval=proposal.get("approved_by"),
+        verification="verified" if verified else "failed",
+        result="verified in P6 sandbox" if verified else "P6 read-back mismatch",
         detail={"project_object_id": p6_project_object_id,
-                "request": preview["body"], "response": result})
-    return {"ok": True, "sandbox": True, "response": result}
+                "request": preview["body"], "response": result,
+                "before": before, "after": after, "rejected": rejected})
+    return {"ok": verified, "sandbox": True,
+            "verification": "verified" if verified else "failed",
+            "response": result, "read_back": after, "rejected": rejected}

@@ -77,6 +77,7 @@ const NAV = [
     ['milestones', 'Milestones', 'milestones'], ['quality', 'Schedule QA', 'qa_failed'],
   ]],
   ['Project Data', [
+    ['certificates', 'Actuals Certificates'],
     ['outputs', 'Reports & Exports'], ['audit', 'Audit Trail'],
   ]],
   ['Advanced', [
@@ -155,6 +156,16 @@ async function render() {
   // scroll position, so only show the placeholder on a genuine view change.
   const sameView = S.renderedView === renderView && S.renderedProject === renderProject;
   const scroll = sameView ? main.scrollTop : 0;
+  const askViewport = sameView && renderView === 'ask'
+    ? main.querySelector('#ask-scroll') : null;
+  if (askViewport && renderProject && VIEWS._ask) {
+    const askState = VIEWS._ask[renderProject] = VIEWS._ask[renderProject] || {};
+    askState.restoreScroll = {
+      top: askViewport.scrollTop,
+      nearBottom: askViewport.scrollHeight - askViewport.scrollTop -
+        askViewport.clientHeight < 90,
+    };
+  }
   if (!sameView && main.childElementCount) main.innerHTML = '<div class="empty">Loading…</div>';
   try {
     const html = await fn(renderProject, S.params);

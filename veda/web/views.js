@@ -127,8 +127,9 @@ VIEWS.capture = async (pid) => {
     '<button class="btn sm" id="capture-sync-now">Sync now</button></div></div>' +
     '<input id="capture-client-id" type="hidden">' +
     '<div class="capture-layout"><section class="capture-composer">' +
-      '<div class="capture-section"><div class="capture-step"><span>1</span><div><b>What changed?</b>' +
-      '<small>Choose the event you personally observed.</small></div></div>' +
+      '<div class="capture-section capture-structured-section" id="capture-structured-card" hidden><div class="capture-step"><span>2</span><div><b>Review the extracted event</b>' +
+      '<small>Edit every field before confirming. Nothing below is accepted silently.</small></div></div>' +
+      '<div class="capture-extracted-summary" id="capture-extracted-summary"></div>' +
       '<div class="capture-event-grid">' +
         '<label class="capture-event-option"><input type="radio" name="capture-event" value="start"><span><b>Started</b><small>Work began on site</small></span></label>' +
         '<label class="capture-event-option selected"><input type="radio" name="capture-event" value="progress" checked><span><b>Progress</b><small>Work advanced</small></span></label>' +
@@ -141,8 +142,8 @@ VIEWS.capture = async (pid) => {
       '<label><span>Remaining working days <em>optional</em></span><input class="inp" id="capture-remaining" type="number" min="0" step="0.5" inputmode="decimal" placeholder="Only if explicitly known"></label></div>' +
       '<div class="note" id="capture-finish-rule" hidden>Finish creates a governed Actual Finish, 100% complete, and zero remaining-duration proposal bundle.</div></div>' +
 
-      '<div class="capture-section"><div class="capture-step"><span>2</span><div><b>Capture the field truth</b>' +
-      '<small>Voice and photos remain attached to the confirmed words.</small></div></div>' +
+      '<div class="capture-section capture-source-section"><div class="capture-step"><span>1</span><div><b>Tell VEDA what happened</b>' +
+      '<small>Speak naturally or type a note. VEDA turns it into an editable event card.</small></div></div>' +
       '<div class="capture-action-grid"><button class="capture-action voice" id="capture-voice" type="button"><i>●</i><b>Record voice</b><small>Audio is kept as evidence</small></button>' +
       '<button class="capture-action photo" id="capture-photo" type="button"><i>▣</i><b>Take photos</b><small>Use camera or gallery</small></button></div>' +
       '<input type="file" id="capture-photo-file" accept="image/*" capture="environment" multiple hidden>' +
@@ -150,9 +151,10 @@ VIEWS.capture = async (pid) => {
       '<div id="capture-media-tray" class="capture-media-tray"></div>' +
       '<label class="capture-wide-label"><span>Spoken or typed observation</span>' +
       '<textarea class="inp" id="capture-original" rows="4" placeholder="Describe the work, exact area, quantities, blockers, and what you personally observed."></textarea></label>' +
-      '<div class="capture-transcript-source" id="capture-transcript-source">Type a note, or record voice for an optional on-device draft transcript.</div></div>' +
+      '<div class="capture-transcript-source" id="capture-transcript-source">Type a note, or record voice for an optional on-device draft transcript.</div>' +
+      '<button class="btn primary capture-extract" id="capture-extract" type="button">Extract editable event card</button></div>' +
 
-      '<div class="capture-section"><div class="capture-step"><span>3</span><div><b>Place and activity</b>' +
+      '<div class="capture-section capture-structured-section" id="capture-place-card" hidden><div class="capture-step"><span>2</span><div><b>Place and activity</b>' +
       '<small>Explicit selection prevents the wrong schedule activity from receiving actuals.</small></div></div>' +
       '<label class="capture-wide-label"><span>Schedule activity <em>search by ID, name, or WBS</em></span>' +
       '<input class="inp" id="capture-activity-search" autocomplete="off" placeholder="Start typing an activity…"></label>' +
@@ -163,7 +165,7 @@ VIEWS.capture = async (pid) => {
       '<div class="capture-location-box"><button class="btn" id="capture-location" type="button">Use device location</button>' +
       '<small id="capture-location-status">Location is optional and permission-based.</small></div></div></div>' +
 
-      '<div class="capture-section capture-confirm-section"><div class="capture-step"><span>4</span><div><b>Confirm before sending</b>' +
+      '<div class="capture-section capture-confirm-section" id="capture-confirm-card" hidden><div class="capture-step"><span>3</span><div><b>Confirm before sending</b>' +
       '<small>VEDA uses these exact words; a transcript is never accepted silently.</small></div></div>' +
       '<div class="capture-fields-two"><label><span>Language</span><select class="inp" id="capture-language">' +
       '<option value="en">English</option><option value="hi-IN">हिन्दी</option>' +
@@ -1580,8 +1582,75 @@ VIEWS.bind_attention = (pid) => {
   if (VIEWS.bind_proposals) VIEWS.bind_proposals(pid);
 };
 
+/* ======================================== 18b. Actuals certificates */
+VIEWS.certificates = async (pid) => {
+  const [data, conflictData] = await Promise.all([
+    A('/projects/' + pid + '/actuals-certificates'),
+    A('/projects/' + pid + '/conflicts?status=open')
+  ]);
+  const cards = (data.certificates || []).map(rowData => {
+    const c = rowData.certificate || {};
+    const m = c.metrics || {};
+    const gates = (c.gates || []).map(gate => '<div class="check"><span class="m ' +
+      (gate.state === 'pass' ? 'pass' : gate.state === 'warning' ? 'warn' : 'fail') + '">' +
+      E(gate.state) + '</span><span class="n">' + E(gate.name) +
+      '</span><span style="flex:1">' + E(gate.detail) + '</span></div>').join('');
+    const actuals = Object.entries(c.recommended_actuals || {}).map(([key, value]) =>
+      '<span class="tag green">' + E(key) + ' · ' + E(value) + '</span>').join(' ');
+    return '<article class="review"><div class="h"><h3>' +
+      E((c.activity || {}).display_id || 'UID ' + c.activity_uid) + ' · ' +
+      E((c.activity || {}).name || 'Activity') + '</h3><div>' +
+      '<span class="tag ' + (c.status === 'admissible' ? 'green' : c.status === 'blocked' ? 'red' : 'amber') + '">' +
+      E(c.status) + '</span> ' + prov('DETERMINISTIC_CALCULATION') + '</div></div>' +
+      '<div class="samples"><div class="grid g4" style="margin-bottom:12px">' +
+      stat('DPR records', int(m.dpr_records || 0), 'linked execution observations') +
+      stat('Traced welds', int(m.unique_welds || 0), 'stable weld identities') +
+      stat('NDT accepted', int(m.accepted_welds || 0), int(m.rejected_welds || 0) + ' rejected/repair') +
+      stat('Open NCRs', int(m.open_ncrs || 0), m.scope_total ? 'scope ' + num(m.scope_total) : 'scope denominator not stated') +
+      '</div>' + gates +
+      '<div style="margin-top:11px"><div class="eyebrow">Admissible actuals</div>' +
+      (actuals || '<span class="muted">None—proof is incomplete or blocked.</span>') + '</div>' +
+      ((c.limitations || []).length ? '<div class="note warn" style="margin-top:10px">' +
+        E(c.limitations.join(' ')) + '</div>' : '') +
+      '<dl class="kv" style="margin-top:10px">' +
+      row('Sources', E((c.sources || []).join(' · ') || '—')) +
+      row('Proof fingerprint', '<span class="mono">' + E((rowData.proof_hash || '').slice(0, 20)) + '…</span>') +
+      row('Contract', E(c.contract_type + ' v' + c.contract_version)) + '</dl></div></article>';
+  }).join('');
+  const conflictRows = (conflictData.conflicts || []).map(c =>
+    '<div class="check"><span class="m fail">open</span><span class="n">' + E(c.kind) +
+    '</span><span style="flex:1">' + E(c.detail) + '</span>' +
+    '<button class="btn sm" data-resolve-conflict="' + E(c.id) + '">Resolve</button></div>').join('');
+  return head('Actuals Certificates', 'Execution proof, not another progress dashboard',
+    '<button class="btn primary" id="generate-certificates">Generate / recheck</button>') +
+    '<div class="note" style="margin-bottom:14px">The pipeline welding contract requires linked DPR, welding and independent NDT records. Open NCRs block acceptance. A finish is never certified without an authoritative scope denominator.</div>' +
+    (cards || panel('Execution proof', empty('No certificates yet',
+      'Link DPR, welding and NDT/NCR records to a schedule activity, then generate certificates.'))) +
+    panel('Durable conflicts <small>' + int((conflictData.conflicts || []).length) + '</small>',
+      '<div class="body">' + (conflictRows || '<div class="note good">No open actuals conflicts.</div>') + '</div>');
+};
+VIEWS.bind_certificates = (pid) => {
+  const generate = document.getElementById('generate-certificates');
+  if (generate) generate.onclick = async () => {
+    generate.disabled = true; generate.textContent = 'Checking proof…';
+    try { const result = await P('/projects/' + pid + '/actuals-certificates/generate',
+      {by:'planning.manager'}); window.toast('Checked ' + int(result.count || 0) + ' activity certificate(s).', 'good'); }
+    catch (error) { window.toast(error.message, 'bad'); }
+    window.render();
+  };
+  document.querySelectorAll('[data-resolve-conflict]').forEach(button => button.onclick = async () => {
+    const resolution = window.prompt('Record how this conflict was resolved:');
+    if (!resolution) return;
+    try { await P('/conflicts/' + button.dataset.resolveConflict + '/resolve',
+      {resolution, by:'planning.manager'}); window.toast('Conflict resolved with an audit entry.', 'good'); }
+    catch (error) { window.toast(error.message, 'bad'); }
+    window.render(); window.refreshCounts();
+  });
+};
+
 /* ================================================= 19. Proposals */
-function proposalCard(p) {
+function proposalCard(p, options) {
+  options = options || {};
   const dr = p.dryrun || {};
   const im = dr.impact || {};
   const st = (label, value, cls) => '<div class="s ' + cls + '"><div class="k">' +
@@ -1609,12 +1678,12 @@ function proposalCard(p) {
     prov(p.provenance) +
     '<span class="tag grey">confidence ' + num(p.confidence, 2) + '</span>' +
     '<div style="flex:1"></div>' +
-    (p.approval_state === 'pending'
+    (p.approval_state === 'pending' && !options.groupMember
       ? '<button class="btn sm" data-dry="' + E(p.id) + '">Re-run dry-run</button>' +
         '<button class="btn sm danger" data-rej="' + E(p.id) + '">Reject</button>' +
         '<button class="btn sm warn" data-app="' + E(p.id) +
         '">Approve and apply</button>'
-      : tagFor(p.approval_state, ST)) +
+      : options.groupMember ? '<span class="tag grey">bundle member</span>' : tagFor(p.approval_state, ST)) +
     '</div></div>' +
     '<div class="q">' + E(p.reason) + '</div>' +
     '<div class="samples">' +
@@ -1669,12 +1738,30 @@ function proposalCard(p) {
     '</div></div>';
 }
 
+function proposalGroupCard(group, members) {
+  return '<section class="panel"><div class="ph"><div><div class="eyebrow">Atomic proposal bundle</div>' +
+    '<h2>' + E(group.purpose || 'Coupled schedule actuals') + ' · ' + int(members.length) +
+    ' fields</h2></div><div style="display:flex;gap:7px;flex-wrap:wrap">' +
+    (group.approval_state === 'pending'
+      ? '<button class="btn sm" data-group-dry="' + E(group.id) + '">Dry-run bundle</button>' +
+        '<button class="btn sm danger" data-group-rej="' + E(group.id) + '">Reject bundle</button>' +
+        '<button class="btn sm warn" data-group-app="' + E(group.id) + '">Approve & apply all</button>'
+      : tagFor(group.approval_state, ST)) + '</div></div>' +
+    '<div class="body"><div class="note">One approval boundary: no revision is published unless every field passes independent read-back verification.</div>' +
+    members.map(p => proposalCard(p, {groupMember:true})).join('') + '</div></section>';
+}
+
 VIEWS.proposals = async (pid) => {
   const [r, p6] = await Promise.all([
     A('/projects/' + pid + '/proposals'),
     A('/integrations/primavera/status').catch(() => ({configured: false, gates: {}})),
   ]);
   const gates = p6.gates || {};
+  const groupedIds = new Set((r.groups || []).map(group => group.id));
+  const grouped = (r.groups || []).map(group => proposalGroupCard(group,
+    r.proposals.filter(p => p.proposal_group_id === group.id))).join('');
+  const ungrouped = r.proposals.filter(p => !p.proposal_group_id || !groupedIds.has(p.proposal_group_id))
+    .map(p => proposalCard(p)).join('');
   return head('Proposed changes', 'Nothing is written without a dry-run and ' +
     'an approval') +
     '<div class="note warn" style="margin-bottom:14px">' +
@@ -1692,7 +1779,7 @@ VIEWS.proposals = async (pid) => {
         '<span class="' + (x[1] ? 'ok' : '') + '"><i>' + (x[1] ? '✓' : '–') + '</i>' + E(x[0]) + '</span>').join('') +
       '</div></div><div class="note" style="margin-top:11px">The adapter maps only approved Actual Start, Actual Finish, Percent Complete, and Remaining Duration proposals. Production writes are disabled in this release; sandbox writes require OAuth, an explicit ProjectObjectId allow-list, and verified activity ID mapping.</div></div>') +
     (r.proposals.length
-      ? r.proposals.map(proposalCard).join('')
+      ? grouped + ungrouped
       : panel('Proposed changes', empty('No proposed changes',
         'The agent proposes a change only where the schedule demonstrably ' +
         'disagrees with verified field evidence.')));
@@ -1718,6 +1805,27 @@ VIEWS.bind_proposals = (pid) => {
     catch (e) { window.toast('Dry-run failed: ' + e.message, 'bad'); }
     window.render();
   });
+  const actGroup = async (groupId, body, message) => {
+    window.toast('Working…');
+    try {
+      const result = await P('/proposal-groups/' + groupId + '/decision', body);
+      window.toast(message + (result.execution
+        ? ' · verification: ' + result.execution.verification : ''), 'good');
+    } catch (error) { window.toast('Failed: ' + error.message, 'bad'); }
+    window.render(); window.refreshCounts();
+  };
+  document.querySelectorAll('[data-group-app]').forEach(b => b.onclick = () =>
+    actGroup(b.dataset.groupApp, {approve:true, by:'planning.manager'},
+      'Bundle approved and applied'));
+  document.querySelectorAll('[data-group-rej]').forEach(b => b.onclick = () =>
+    actGroup(b.dataset.groupRej, {approve:false, by:'planning.manager'},
+      'Bundle rejected'));
+  document.querySelectorAll('[data-group-dry]').forEach(b => b.onclick = async () => {
+    window.toast('Running bundle dry-run…');
+    try { await P('/proposal-groups/' + b.dataset.groupDry + '/dry-run'); }
+    catch (error) { window.toast('Bundle dry-run failed: ' + error.message, 'bad'); }
+    window.render();
+  });
 };
 
 /* ============================================ 19b. Thinking trace (shared)
@@ -1735,6 +1843,21 @@ function fmtDur(seconds) {
   return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
 }
 
+function reasoningStepLabel(entry) {
+  const labels = {
+    agent_invoked: 'Choosing the right reasoning path',
+    agent_unavailable: 'Reasoning service unavailable',
+    agent_started: 'Project context sent',
+    agent_processing: 'Working on the response…',
+    provider_selected: 'Reasoning complete',
+    structured_output_partial: 'Checking the response',
+    structured_output_rejected: 'Response check failed',
+    agent_failed: 'Reasoning attempt failed',
+    fallback_analysis: 'Using built-in project rules',
+  };
+  return labels[entry.step] || entry.label;
+}
+
 function thinkItem(entry) {
   const isTool = entry.kind === 'tool';
   const failed = entry.state === 'failed';
@@ -1742,7 +1865,7 @@ function thinkItem(entry) {
     (failed ? ' failed' : '') + (entry.active ? ' active' : '');
   const title = isTool
     ? E(entry.server) + '<span class="think-slash">/</span>' + E(entry.tool)
-    : E(entry.label);
+    : E(reasoningStepLabel(entry));
   const detailRaw = isTool
     ? [entry.summary || entry.error, (entry.duration_ms !== null && entry.duration_ms !== undefined)
         ? Math.round(entry.duration_ms) + 'ms' : null].filter(Boolean).join(' · ')
@@ -1858,8 +1981,8 @@ function askTurn(turn, steps, calls) {
   if (turn.kind === 'pending') {
     inner = thinkingPanel({
       status: 'live', steps: steps, calls: calls, openKey: 'ask:' + turn.id,
-      defaultOpen: true,
-      idleHint: 'Reading the stored schedule and field evidence…',
+      defaultOpen: false,
+      idleHint: 'Preparing a response…',
     });
   } else if (turn.kind === 'failed') {
     inner = thinkingPanel({
@@ -2000,10 +2123,17 @@ VIEWS.bind_ask = (pid) => {
 
   sizeSpacer();
   const grew = (st.lastTurnCount || 0) < st.turnCount;
+  const restoreScroll = st.restoreScroll;
+  delete st.restoreScroll;
   if (st.pin && (grew || st.pinSticky)) {
     pinLast();
     // Stop re-pinning once the answer has landed - let the reader scroll freely.
     if (!st.hasPending && !grew) { st.pinSticky = false; st.pin = false; }
+  } else if (restoreScroll && !restoreScroll.nearBottom) {
+    st._prog = true;
+    scroll.scrollTop = restoreScroll.top;
+    st.follow = false;
+    setTimeout(() => { st._prog = false; }, 90);
   } else if (grew || st.follow !== false) {
     toBottom();
   }
@@ -2486,7 +2616,7 @@ VIEWS.files = async (pid) => {
     '.csv,.tsv,.xlsx,.xlsm,.xls,.pdf,.docx,.txt,.json,.md,.log,' +
     '.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp';
 
-  return head('Files', 'v0.1.2 multi-source inbox — immutable, incremental, auditable') +
+  return head('Files', 'v0.4 typed source inbox — immutable, relevant, auditable') +
     panel('Add project sources', '<div class="body">' +
       '<div id="ingestdrop" tabindex="0">' +
       '<div style="font-weight:650;margin-bottom:5px">Drop many files here</div>' +
@@ -2558,12 +2688,17 @@ VIEWS.files = async (pid) => {
         '<td>' + (x.is_current ? '<span class="tag green">current</span>' : '') +
         '</td></tr>')) : '') +
     panel('Source library <small>' + r.files.length + '</small>',
-      table([{ t: 'Name' }, { t: 'Kind' }, { t: 'Source mode' },
+      table([{ t: 'Name' }, { t: 'Type / schema' }, { t: 'Relevance' }, { t: 'Source mode' },
         { t: 'Size', r: true }, { t: 'SHA-256' }, { t: 'Extraction' },
         { t: 'Security' }, { t: 'Uploaded' }], r.files, f =>
         '<tr><td>' + E(f.relative_path || f.filename) + '</td>' +
-        '<td>' + tagFor(f.kind, { schedule: 'blue', evidence: 'grey',
-          unknown: 'amber' }) + '</td>' +
+        '<td>' + tagFor(f.document_type || f.kind, { schedule: 'blue', evidence: 'grey',
+          unknown: 'amber', REFERENCE_DOCUMENT: 'grey', WELDING_REGISTER: 'blue',
+          NDT_REGISTER: 'green', NCR_REGISTER: 'red', MATERIAL_REGISTER: 'amber' }) +
+          (f.schema_name ? '<small style="display:block;color:var(--ink-3);margin-top:3px">' +
+            E(f.schema_name) + ' v' + E(f.schema_version || '—') + '</small>' : '') + '</td>' +
+        '<td title="' + E(f.relevance_reason || '') + '">' + tagFor(f.relevance_state || 'pending',
+          {evidence:'green', context:'blue', reference:'grey', unclassified:'amber', pending:'grey'}) + '</td>' +
         '<td>' + tagFor(f.source_mode || 'file', { file: 'grey', field_note: 'green',
           whatsapp: 'blue', change_request: 'amber' }) + '</td>' +
         '<td class="r mono">' + int(f.size_bytes) + '</td>' +

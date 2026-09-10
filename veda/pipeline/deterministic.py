@@ -249,6 +249,22 @@ def analyse(project_id: str) -> AgentResult:
                               "limited to what deterministic rules can justify."])
 
 
+def answer_question(project_id: str, question: str) -> AgentResult:
+    """Return a question-specific fallback instead of a full status dump."""
+    from ..agent.question_router import instant_reply
+
+    project = db.q1("SELECT name FROM projects WHERE id=?", [project_id]) or {}
+    answer = instant_reply(
+        question, str(project.get("name") or "this project"), history=[])
+    if answer:
+        return AgentResult(summary=answer)
+    return AgentResult(summary=(
+        "I couldn't reach the configured reasoning service, so I can't safely "
+        "answer that specific request right now. Your question was preserved; "
+        "please try again once the reasoning service is reachable."
+    ))
+
+
 def _ref_of(e: dict) -> str | None:
     m = re.match(r"^([A-Z]{2,5}-[\w\-/]+)\s*:", str(e.get("description") or ""))
     return m.group(1) if m else None

@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 from .. import audit, db, events
-from . import proposals
+from ..resolution import reality_graph
+from . import conflicts as conflict_store, proposals
 
 
 def _day(value: Any) -> str | None:
@@ -68,6 +69,9 @@ def record_confirmed_event(project_id: str, *, evidence_id: str,
                    "WHERE execution_event_id=?", [event_id]) or {}).get("c", 0)
     db.update("execution_events", event_id, {
         "source_count": count, "state": "confirmed", "updated_at": db.now()})
+    reality_graph.persist_relation(project_id, event_id, {
+        "relation": reality_graph.REL_EXACT, "uids": [int(activity_uid)],
+        "confidence": 1.0, "reason": "activity identity explicitly confirmed by a person"})
     return event_id
 
 
@@ -78,13 +82,23 @@ def generate_from_confirmed_evidence(project_id: str, evidence_id: str,
                      [evidence_id, project_id])
     if not evidence:
         raise KeyError("no such evidence")
+    if evidence.get("observation_type") not in (None, "activity_progress", "general"):
+        return {"event_id": None, "proposal_ids": [], "conflicts": [],
+                "note": ("Quality/material evidence contributes to an Execution Proof "
+                         "Contract; it never becomes a schedule actual by itself.")}
     state = str(evidence.get("event_state") or "").lower()
     if state not in {"start", "progress", "finish"}:
         return {"event_id": None, "proposal_ids": [], "conflicts": [],
                 "note": "evidence is not a start/progress/finish event"}
     if not _day(evidence.get("date")):
+        cid = conflict_store.upsert(
+            project_id, kind="missing_event_date",
+            detail="A planner must confirm the event date before actuals can be proposed.",
+            entity_type="evidence", entity_id=evidence_id,
+            activity_uid=activity_uid, field="event_date",
+            evidence_ids=[evidence_id])
         return {"event_id": None, "proposal_ids": [],
-                "conflicts": [{"field": "event_date",
+                "conflicts": [{"id": cid, "field": "event_date",
                                "detail": "A planner must confirm the event date before actuals can be proposed."}]}
     raw = db.jloads(evidence.get("raw_json"), {}) or {}
     remaining_days = raw.get("remaining_days")
@@ -122,8 +136,14 @@ def generate_for_event(event_id: str) -> dict:
     activity = db.q1("SELECT * FROM activities WHERE project_id=? AND uid=?",
                      [project_id, event.get("activity_uid")])
     if not activity:
+        detail = "Target activity no longer exists."
+        cid = conflict_store.upsert(
+            project_id, kind="missing_activity", detail=detail,
+            entity_type="execution_event", entity_id=event_id,
+            activity_uid=event.get("activity_uid"), field="activity",
+            source_event_id=event_id, evidence_ids=_evidence_ids(event_id))
         return {"event_id": event_id, "proposal_ids": [],
-                "conflicts": [{"field": "activity", "detail": "Target activity no longer exists."}]}
+                "conflicts": [{"id": cid, "field": "activity", "detail": detail}]}
 
     state = str(event.get("event_state") or "").lower()
     event_day = _day(event.get("event_date"))
@@ -176,6 +196,16 @@ def generate_for_event(event_id: str) -> dict:
             target_name=activity.get("name"), evidence_ids=evidence_ids,
             confidence=confidence, provenance="DETERMINISTIC_CALCULATION",
             proposal_group_id=group_id, source_event_id=event_id))
+
+    for conflict in conflicts:
+        conflict["id"] = conflict_store.upsert(
+            project_id, kind="actuals_mismatch", detail=conflict["detail"],
+            entity_type="execution_event", entity_id=event_id,
+            activity_uid=int(activity["uid"]), field=conflict.get("field"),
+            official_value=conflict.get("official"),
+            observed_value=conflict.get("observed"),
+            evidence_ids=evidence_ids, source_event_id=event_id,
+            proposal_group_id=group_id)
 
     audit.record(
         project_id, actor="actuals.policy", actor_type="system",

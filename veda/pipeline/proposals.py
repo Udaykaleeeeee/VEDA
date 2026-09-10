@@ -149,6 +149,9 @@ def create(project_id: str, *, target_uid: int | None = None,
                 "updated_at": db.now(),
             })
             validate(existing["id"])
+            if existing.get("proposal_group_id"):
+                _refresh_group(existing["proposal_group_id"], project_id=project_id,
+                               source_event_id=source_event_id)
             return existing["id"]
 
     act = db.q1("SELECT * FROM activities WHERE project_id=? AND uid=?",
@@ -206,6 +209,9 @@ def create(project_id: str, *, target_uid: int | None = None,
                  detail={"operation": operation, "field": field,
                          "target_uid": target_uid, "payload": payload})
     validate(pid)
+    if proposal_group_id:
+        _refresh_group(proposal_group_id, project_id=project_id,
+                       source_event_id=source_event_id)
     return pid
 
 
@@ -252,6 +258,47 @@ def _op_for(p: dict) -> dict:
             pass
     return {"op": "update", "uid": p.get("target_uid"),
             FIELD_TO_OP[str(field)]: val}
+
+
+def _group_rows(group_id: str) -> list[dict]:
+    return db.q("SELECT * FROM proposals WHERE proposal_group_id=? "
+                "ORDER BY created_at,id", [group_id])
+
+
+def _aggregate_state(rows: list[dict], field: str, *, pending: str) -> str:
+    states = [str(row.get(field) or pending) for row in rows]
+    if not states:
+        return pending
+    if all(value == states[0] for value in states):
+        return states[0]
+    if "failed" in states or "rejected" in states:
+        return "failed"
+    return "partial"
+
+
+def _refresh_group(group_id: str, *, project_id: str | None = None,
+                   source_event_id: str | None = None) -> dict:
+    rows = _group_rows(group_id)
+    if not rows:
+        raise KeyError("no such proposal group")
+    project_id = project_id or rows[0]["project_id"]
+    existing = db.q1("SELECT id FROM proposal_groups WHERE id=?", [group_id])
+    values = {
+        "project_id": project_id, "source_event_id": source_event_id or rows[0].get("source_event_id"),
+        "purpose": "coupled schedule actuals",
+        "member_count": len(rows),
+        "validation_state": _aggregate_state(rows, "validation_state", pending="pending"),
+        "dryrun_state": _aggregate_state(rows, "dryrun_state", pending="not_run"),
+        "approval_state": _aggregate_state(rows, "approval_state", pending="pending"),
+        "execution_state": _aggregate_state(rows, "execution_state", pending="not_executed"),
+        "verification_state": _aggregate_state(rows, "verification_state", pending="not_verified"),
+        "updated_at": db.now(),
+    }
+    if existing:
+        db.update("proposal_groups", group_id, values)
+    else:
+        db.insert("proposal_groups", {"id": group_id, **values})
+    return db.q1("SELECT * FROM proposal_groups WHERE id=?", [group_id]) or {}
 
 
 def dry_run(proposal_id: str, job_id: str | None = None) -> dict:
@@ -383,6 +430,9 @@ def approve(proposal_id: str, approved_by: str = "human",
     p = db.q1("SELECT * FROM proposals WHERE id=?", [proposal_id])
     if not p:
         raise KeyError("no such proposal")
+    if p.get("proposal_group_id"):
+        return approve_group(p["proposal_group_id"], approved_by=approved_by,
+                             approve_it=approve_it, note=note)
     state = "approved" if approve_it else "rejected"
     db.update("proposals", proposal_id, {
         "approval_state": state, "approved_by": approved_by,
@@ -398,6 +448,172 @@ def approve(proposal_id: str, approved_by: str = "human",
     events.notify_ui(p["project_id"], "proposals_changed",
                      {"proposal_id": proposal_id})
     return db.q1("SELECT * FROM proposals WHERE id=?", [proposal_id]) or {}
+
+
+def dry_run_group(group_id: str, job_id: str | None = None) -> dict:
+    """Dry-run every member before the group can enter the approval gate."""
+    rows = _group_rows(group_id)
+    if not rows:
+        raise KeyError("no such proposal group")
+    results = [dry_run(row["id"], job_id=job_id) for row in rows]
+    group = _refresh_group(group_id)
+    ok = all(bool(result.get("ok")) for result in results)
+    if not ok:
+        db.update("proposal_groups", group_id, {"dryrun_state": "failed",
+                                                "updated_at": db.now()})
+    return {"ok": ok, "group_id": group_id, "members": results,
+            "group": db.q1("SELECT * FROM proposal_groups WHERE id=?", [group_id]) or group}
+
+
+def approve_group(group_id: str, *, approved_by: str = "human",
+                  approve_it: bool = True, note: str | None = None) -> dict:
+    """Approve/reject all members in one SQLite transaction.
+
+    Approval fails closed when even one member has not passed validation and a
+    real dry-run. No proposal is changed in that case.
+    """
+    rows = _group_rows(group_id)
+    if not rows:
+        raise KeyError("no such proposal group")
+    if approve_it:
+        blockers = [row["id"] for row in rows if row.get("validation_state") != "passed"
+                    or row.get("dryrun_state") != "ok"]
+        if blockers:
+            raise ValueError("every proposal in the group must pass validation and dry-run before approval")
+    state = "approved" if approve_it else "rejected"
+    stamp = db.now()
+    with db.transaction():
+        for row in rows:
+            db.update("proposals", row["id"], {
+                "approval_state": state, "approved_by": approved_by,
+                "approved_at": stamp, "updated_at": stamp})
+        _refresh_group(group_id)
+        db.update("proposal_groups", group_id, {
+            "approval_state": state, "approved_by": approved_by,
+            "approved_at": stamp, "decision_note": note,
+            "updated_at": stamp})
+        audit.record(rows[0]["project_id"], actor=approved_by, actor_type="human",
+                     action="proposal_group_" + state, source="website",
+                     entity_type="proposal_group", entity_id=group_id,
+                     approval=approved_by, result=note or state,
+                     detail={"proposal_ids": [row["id"] for row in rows],
+                             "atomic": True})
+    events.notify_ui(rows[0]["project_id"], "proposals_changed",
+                     {"proposal_group_id": group_id})
+    return {"ok": True, "group_id": group_id, "approval_state": state,
+            "proposal_ids": [row["id"] for row in rows]}
+
+
+def execute_group(group_id: str, job_id: str | None = None,
+                  actor: str = "human") -> dict:
+    """Apply a coupled update bundle to one revision, then verify every field.
+
+    The new revision is saved only when all independent read-backs match. A
+    rejection or mismatch closes the scratch handle without publishing a
+    partial schedule revision.
+    """
+    rows = _group_rows(group_id)
+    if not rows:
+        raise KeyError("no such proposal group")
+    project_id = rows[0]["project_id"]
+    if any(row["project_id"] != project_id for row in rows):
+        return {"ok": False, "error": "proposal group crosses project boundaries"}
+    if any((row.get("operation") or "update") != "update" for row in rows):
+        return {"ok": False, "error": "atomic group execution currently permits field updates only"}
+    if any(row.get("approval_state") != "approved" for row in rows):
+        return {"ok": False, "error": "the complete proposal group is not approved"}
+    if any(row.get("validation_state") != "passed" or row.get("dryrun_state") != "ok"
+           for row in rows):
+        return {"ok": False, "error": "every group member must pass validation and dry-run"}
+    if any(row.get("execution_state") == "executed" for row in rows):
+        return {"ok": False, "error": "one or more group members were already executed"}
+
+    src = current_schedule_path(project_id)
+    if not src:
+        return {"ok": False, "error": "no schedule file is available"}
+    guard = _tabular_write_block(src)
+    if guard:
+        return guard
+    from . import ingest
+    dest = ingest.copy_for_edit(project_id, src, suffix="rev")
+    handle = None
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
+    try:
+        handle = horizun.call("project_open", {"path": dest, "mode": "readwrite"},
+                              project_id=project_id, job_id=job_id,
+                              timeout=300)["handle"]
+        for row in rows:
+            before[row["id"]] = _read_field(handle, row["target_uid"], row["field"],
+                                             project_id, job_id)
+        result = horizun.call("tasks_write", {
+            "handle": handle, "ops": [_op_for(row) for row in rows], "dryRun": False},
+            project_id=project_id, job_id=job_id, timeout=300)
+        rejected = (result or {}).get("rejected") or []
+        for row in rows:
+            after[row["id"]] = _read_field(handle, row["target_uid"], row["field"],
+                                            project_id, job_id)
+        mismatches = [row["id"] for row in rows
+                      if not _matches(row.get("proposed_value"), after[row["id"]], row["field"])]
+        if rejected or mismatches:
+            horizun.try_call("project_save", {"handle": handle, "op": "close",
+                                               "discardChanges": True}, log=False)
+            Path(dest).unlink(missing_ok=True)
+            with db.transaction():
+                db.update("proposal_groups", group_id, {
+                    "execution_state": "failed", "verification_state": "failed",
+                    "updated_at": db.now()})
+            return {"ok": False, "error": "group read-back verification failed",
+                    "rejected": rejected, "mismatches": mismatches}
+        save = horizun.call("project_save", {
+            "handle": handle, "op": "save_as", "path": dest,
+            "format": "mspdi", "keepOpen": False},
+            project_id=project_id, job_id=job_id, timeout=300)
+    except Exception as exc:  # noqa: BLE001 - external write boundary must fail closed
+        if handle:
+            horizun.try_call("project_save", {"handle": handle, "op": "close",
+                                               "discardChanges": True}, log=False)
+        Path(dest).unlink(missing_ok=True)
+        db.update("proposal_groups", group_id, {
+            "execution_state": "failed", "verification_state": "failed",
+            "updated_at": db.now()})
+        return {"ok": False, "error": str(exc)}
+
+    stamp = db.now()
+    with db.transaction():
+        for row in rows:
+            db.update("proposals", row["id"], {
+                "execution_state": "executed", "executed_at": stamp,
+                "verification_state": "verified",
+                "requested_value": str(row.get("proposed_value")),
+                "resulting_value": None if after[row["id"]] is None else str(after[row["id"]]),
+                "verified_fields_json": db.jdumps([row["field"]]),
+                "rejected_fields_json": db.jdumps([]), "output_path": dest,
+                "updated_at": stamp})
+        db.update("proposal_groups", group_id, {
+            "execution_state": "executed", "verification_state": "verified",
+            "updated_at": stamp})
+        db.insert("artifacts", {
+            "project_id": project_id, "job_id": job_id, "kind": "schedule_revision",
+            "title": Path(dest).name, "path": dest, "format": "mspdi",
+            "size_bytes": os.path.getsize(dest) if os.path.exists(dest) else None,
+            "description": "Atomic revision for proposal group " + group_id +
+                           "; all fields passed independent read-back verification.",
+            "provenance": "DERIVED"})
+        audit.record(project_id, actor=actor, actor_type="agent",
+                     action="proposal_group_execute", tool="Horizun/tasks_write",
+                     source="proposal_group", entity_type="proposal_group",
+                     entity_id=group_id, approval=rows[0].get("approved_by"),
+                     verification="verified", result="written to " + Path(dest).name,
+                     detail={"proposal_ids": [row["id"] for row in rows],
+                             "before": before, "after": after, "save": save,
+                             "atomic": True, "output_path": dest})
+    schedule_ops.forget_handles()
+    events.emit(events.SCHEDULE_CHANGED, project_id, {
+        "proposal_group_id": group_id, "proposal_ids": [row["id"] for row in rows],
+        "path": dest, "verification": "verified"}, source="proposal_group")
+    return {"ok": True, "group_id": group_id, "verification": "verified",
+            "output_path": dest, "proposal_ids": [row["id"] for row in rows]}
 
 
 def _task_rows(handle: str, project_id: str, job_id: str | None) -> list[dict]:

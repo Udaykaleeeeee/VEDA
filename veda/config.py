@@ -45,8 +45,8 @@ HORIZUN_TIMEOUT = int(os.environ.get("VEDA_HORIZUN_TIMEOUT", "180"))
 # is checked at runtime for every job, and a provider that is installed but not
 # authenticated / temporarily offline is skipped without blocking the queue.
 def _default_provider() -> str:
-    if os.environ.get("ANTIGRAVITY_AGENTAPI_EXE"):
-        return "local_antigravity"
+    # The desktop provider opens Antigravity conversations, so it remains an
+    # explicit operator choice instead of silently taking over every launch.
     return os.environ.get("VEDA_AGENT_PROVIDER", "auto").strip() or "auto"
 
 AGENT_PROVIDER = _default_provider()
@@ -60,10 +60,14 @@ def _find_antigravity_cli() -> str:
         return found
     # Official installers use these locations when PATH has not refreshed yet.
     local = os.environ.get("LOCALAPPDATA")
-    candidates = []
+    profile = os.environ.get("USERPROFILE")
+    candidates = [DATA_DIR / "runtime" / "agy.exe"]
     if local:
         candidates.append(Path(local) / "agy" / "bin" / "agy.exe")
-    candidates.extend([Path.home() / ".local" / "bin" / "agy",
+    if profile:
+        candidates.append(Path(profile) / "AppData" / "Local" / "agy" / "bin" / "agy.exe")
+    candidates.extend([Path.home() / "AppData" / "Local" / "agy" / "bin" / "agy.exe",
+                       Path.home() / ".local" / "bin" / "agy",
                        Path.home() / ".local" / "bin" / "agy.exe"])
     for cand in candidates:
         if cand.exists():
@@ -73,6 +77,36 @@ def _find_antigravity_cli() -> str:
 ANTIGRAVITY_CMD = _find_antigravity_cli()
 # Empty means use the model selected in the operator's Antigravity settings.
 ANTIGRAVITY_MODEL = os.environ.get("VEDA_ANTIGRAVITY_MODEL", "").strip() or None
+_LOCAL_ANTIGRAVITY_LEGACY_MODEL = (
+    os.environ.get("VEDA_LOCAL_ANTIGRAVITY_MODEL", "").strip() or None
+)
+LOCAL_ANTIGRAVITY_FAST_MODEL = (
+    os.environ.get("VEDA_LOCAL_ANTIGRAVITY_FAST_MODEL", "flash_lite").strip()
+    or "flash_lite"
+)
+LOCAL_ANTIGRAVITY_DEEP_MODEL = (
+    os.environ.get("VEDA_LOCAL_ANTIGRAVITY_DEEP_MODEL", "").strip()
+    or _LOCAL_ANTIGRAVITY_LEGACY_MODEL or "pro"
+)
+LOCAL_ANTIGRAVITY_MODEL = (
+    _LOCAL_ANTIGRAVITY_LEGACY_MODEL or LOCAL_ANTIGRAVITY_DEEP_MODEL
+)
+LOCAL_ANTIGRAVITY_CALLBACK_URL = (
+    os.environ.get(
+        "VEDA_LOCAL_ANTIGRAVITY_CALLBACK_URL",
+        "http://127.0.0.1:" + str(PORT),
+    ).strip().rstrip("/")
+)
+
+# Ordinary non-project conversation stays entirely on the machine. This avoids
+# spending any hosted-provider allowance merely to answer lightweight chat.
+LOCAL_CHAT_ENABLED = os.environ.get("VEDA_LOCAL_CHAT_ENABLED", "0").lower() \
+    not in ("0", "false", "no")
+LOCAL_CHAT_URL = os.environ.get(
+    "VEDA_LOCAL_CHAT_URL", "http://127.0.0.1:11434").strip().rstrip("/")
+LOCAL_CHAT_MODEL = os.environ.get("VEDA_LOCAL_CHAT_MODEL", "qwen2.5:7b").strip()
+LOCAL_CHAT_TIMEOUT = float(os.environ.get("VEDA_LOCAL_CHAT_TIMEOUT", "45"))
+LOCAL_CHAT_KEEP_ALIVE = os.environ.get("VEDA_LOCAL_CHAT_KEEP_ALIVE", "4h").strip()
 CLAUDE_CMD = os.environ.get("VEDA_CLAUDE_CMD") or shutil.which("claude") or "claude"
 CLAUDE_MODEL = os.environ.get("VEDA_CLAUDE_MODEL", "sonnet")
 CODEX_CMD = os.environ.get("VEDA_CODEX_CMD") or shutil.which("codex") or "codex"

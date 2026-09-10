@@ -70,6 +70,30 @@ an auditable record with a SHA-256 evidence hash. See
 
 ---
 
+## v0.4.0 — execution proof and governed actuals
+
+v0.4.0 turns uploaded field paperwork into a typed, relevance-scored execution
+record. DPR, welding, NDT, NCR and material registers now retain a versioned
+canonical schema alongside the untouched source row. The normal linker persists
+set-valued reality relations (`EXACT`, `PART_OF`, `AGGREGATES`, `SPLIT_ACROSS`,
+`AMBIGUOUS`, `NEW_SCOPE`) instead of forcing every observation onto one activity.
+
+The first Execution Proof Contract covers pipeline welding: DPR establishes that
+work occurred, weld identities establish traceability, independent NDT establishes
+acceptance, and open NCRs block the certificate. Actuals Certificates are immutable
+proof snapshots and never invent completion when the total weld/joint scope is not
+known. Coupled actuals use one atomic approval and one verified revision. Primavera
+writes now perform an authoritative GET before and after PUT and reject a percent
+write when the activity uses a different native percent-complete basis.
+
+Field voice capture now produces an editable extracted-event card before human
+confirmation. Run the offline release suite with
+`.venv\Scripts\python.exe tools\verify_v040.py`. Build a clean, isolated demo copy
+with `.venv\Scripts\python.exe tools\build_demo_database.py`; it never deletes or
+overwrites the working `data/veda.db`.
+
+---
+
 ## v0.3.7 — atomic evidence decomposition and exact-identity fixes
 
 v0.3.7 fixes the root cause behind page-level evidence contamination: Daily Construction Reports were being collapsed into a single evidence row, then matched as if an entire page were one activity. The release introduces atomic document decomposition, typed observation routing, exact-identity matching, safer date interpretation, and stronger evidence deduplication while preserving review continuity.
@@ -198,6 +222,18 @@ Backend events: `dataset_uploaded`, `files_added`, `analysis_requested`,
 
 In auto mode VEDA invokes the installed headless CLI itself. Priority is Antigravity, then Claude Code, then Codex; the operator does not manually switch providers per job.
 
+Ask VEDA uses adaptive reasoning. Greetings and other fully determined social
+turns answer immediately. Ordinary conversation uses the lightweight
+Antigravity desktop tier. Questions about schedules, tasks, progress,
+evidence, risks, issues, dates, files, or project decisions use the full grounded
+workflow and the configured reasoning agent. Short follow-ups such as “why?”
+inherit the preceding grounded mode so conversational wording cannot bypass the
+project checks.
+
+When `local_antigravity` is selected, VEDA discovers the running Antigravity
+desktop Agent API and dispatches deep project work directly. The older manual
+inbox watcher remains available as a fallback.
+
 ### Provenance is the product
 
 Every important fact declares where it came from, and the interface colours them
@@ -308,7 +344,7 @@ tools/
   verify_slice.py      end-to-end verification
 ```
 
-Data lives in `data/`: `veda.db`, plus `projects/<id>/files`, `/revisions`,
+Working data lives in `data/`: `veda.db`, plus `projects/<id>/files`, `/revisions`,
 `/outputs`.
 
 ---
@@ -321,13 +357,20 @@ Data lives in `data/`: `veda.db`, plus `projects/<id>/files`, `/revisions`,
 | `VEDA_AGENT_PROVIDER` | `auto` | `auto` = Antigravity → Claude Code → Codex; manual choices: `antigravity_cli`, `claude_code`, `codex`, `gemini_api`, `local_antigravity` |
 | `VEDA_ANTIGRAVITY_CMD` | `agy` | Antigravity CLI executable |
 | `VEDA_ANTIGRAVITY_MODEL` | CLI default | optional Antigravity model override |
+| `VEDA_LOCAL_ANTIGRAVITY_FAST_MODEL` | `flash_lite` | desktop fallback tier for ordinary conversation |
+| `VEDA_LOCAL_ANTIGRAVITY_DEEP_MODEL` | `pro` | desktop tier for grounded project reasoning |
+| `VEDA_LOCAL_CHAT_ENABLED` | `0` | optional Ollama conversational lane; disabled by default to avoid CPU/RAM load |
+| `VEDA_LOCAL_CHAT_MODEL` | `qwen2.5:7b` | Ollama model used only when the optional local lane is enabled |
+| `VEDA_LOCAL_CHAT_URL` | `http://127.0.0.1:11434` | local Ollama API |
+| `VEDA_LOCAL_CHAT_KEEP_ALIVE` | `4h` | keep the local chat model warm between turns |
+| `VEDA_DETERMINISTIC_ONLY` | `0` | opt-in reproducible/no-credit mode used by the isolated demo builder |
 | `VEDA_CLAUDE_MODEL` | `sonnet` | Claude Code model |
 | `VEDA_CODEX_CMD` | `codex` | Codex CLI executable |
 | `VEDA_CODEX_MODEL` | CLI default | optional Codex model override |
 | `GEMINI_API_KEY` | — | enables Antigravity/Gemini |
 | `VEDA_HORIZUN_CMD` | auto-detected | Horizun executable |
 | `VEDA_ALLOW_FALLBACK` | `1` | rule-based analysis when no provider |
-| `VEDA_AGENT_CLAIM_TIMEOUT` | `30` | seconds an unclaimed local-Antigravity inbox job may block the worker |
+| `VEDA_AGENT_CLAIM_TIMEOUT` | `8` | seconds an unclaimed manual inbox job may block the worker |
 | `VEDA_DATA_DIR` | `./data` | storage root |
 
 ---

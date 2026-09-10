@@ -292,4 +292,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        db.close()
+        _TMP.cleanup()

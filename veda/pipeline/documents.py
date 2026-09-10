@@ -40,14 +40,20 @@ OBS_TARGET = "target"
 OBS_REPORT_METADATA = "report_metadata"
 OBS_SIGNOFF = "signoff"
 OBS_GENERAL = "general"
+OBS_QUALITY_GATE = "quality_gate"
+OBS_MATERIAL = "material"
 
 # Only these observation types are handed to the schedule activity resolver.
-ACTIVITY_RESOLVABLE = frozenset({OBS_ACTIVITY_PROGRESS, OBS_GENERAL})
+ACTIVITY_RESOLVABLE = frozenset({
+    OBS_ACTIVITY_PROGRESS, OBS_GENERAL, OBS_QUALITY_GATE, OBS_MATERIAL,
+})
 
 # Evidence.state assigned at extraction time by observation type.
 STATE_BY_TYPE = {
     OBS_ACTIVITY_PROGRESS: "new",
     OBS_GENERAL: "new",
+    OBS_QUALITY_GATE: "new",
+    OBS_MATERIAL: "new",
     OBS_ISSUE: "issue",
     OBS_MANPOWER: "context",
     OBS_EQUIPMENT: "context",
@@ -65,6 +71,11 @@ DOC_EXCEL_PROGRESS_REGISTER = "EXCEL_PROGRESS_REGISTER"
 DOC_ISSUE_REGISTER = "ISSUE_REGISTER"
 DOC_RESOURCE_REPORT = "RESOURCE_REPORT"
 DOC_WEEKLY_REPORT = "WEEKLY_REPORT"
+DOC_WELDING_REGISTER = "WELDING_REGISTER"
+DOC_NDT_REGISTER = "NDT_REGISTER"
+DOC_NCR_REGISTER = "NCR_REGISTER"
+DOC_MATERIAL_REGISTER = "MATERIAL_REGISTER"
+DOC_REFERENCE_DOCUMENT = "REFERENCE_DOCUMENT"
 DOC_UNKNOWN = "UNKNOWN"
 
 MIN_USABLE_CHARS = int(os.getenv("VEDA_MIN_EXTRACT_CHARS", "48"))
@@ -148,6 +159,16 @@ def acquire_text(f: dict) -> dict:
 # ============================================================ 2. CLASSIFICATION
 # (document_type, weight, [signal regexes]) - generic construction vocabulary.
 _DOC_SIGNALS: list[tuple[str, float, list[str]]] = [
+    (DOC_REFERENCE_DOCUMENT, 4.0, [
+        r"\b(?:user|training|reference|installation)\s+(?:guide|manual)\b",
+        r"\btable\s+of\s+contents\b", r"\bcopyright\s+©?\s*\d{4}\b"]),
+    (DOC_WELDING_REGISTER, 3.0, [r"weld(?:ing)?\s+register", r"\bweld[_\s-]*no\b"]),
+    (DOC_NDT_REGISTER, 3.0, [r"\bndt\s+(?:register|report|log)\b",
+                                  r"radiograph(?:y|ic)\s+report"]),
+    (DOC_NCR_REGISTER, 3.0, [r"\bncr\s+(?:register|log)\b",
+                                  r"non[ -]conformance\s+(?:register|report)"]),
+    (DOC_MATERIAL_REGISTER, 3.0, [r"material\s+(?:receiving|receipt|register|log)",
+                                       r"\b(?:mrn|mrr)[_\s-]*no\b"]),
     (DOC_DAILY_CONSTRUCTION_REPORT, 3.0, [
         r"daily\s+construction\s+report", r"\bd\.?c\.?r\.?\b"]),
     (DOC_DAILY_PROGRESS_REPORT, 3.0, [
@@ -696,6 +717,12 @@ def decompose(project_id: str, f: dict, job_id: str | None = None) -> dict:
     text, pages, method = acq["text"], acq["pages"], acq["method"]
     doc_class = classify_document(text, f.get("filename"))
     doc_type = doc_class["document_type"]
+    if doc_type == DOC_REFERENCE_DOCUMENT:
+        return {"usable": True, "document_type": doc_type,
+                "document_confidence": doc_class["confidence"],
+                "document_signals": doc_class["signals"],
+                "text_method": method, "page_count": len(pages),
+                "observations": [], "section_summary": {}, "section_types": []}
     sections = segment(pages)
 
     # Temporal context for date disambiguation: every unambiguous date in the

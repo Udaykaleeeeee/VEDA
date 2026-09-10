@@ -22,7 +22,7 @@ def main() -> None:
     assert "Schedule '" not in greeting.summary
 
     unavailable = deterministic.answer_question(pid, "What caused yesterday's delay?")
-    assert "couldn't reach the configured Antigravity agent" in unavailable.summary
+    assert "couldn't reach the configured reasoning service" in unavailable.summary
     assert "Schedule '" not in unavailable.summary
 
     print("[PASS] Ask VEDA fallback respects the user's message")

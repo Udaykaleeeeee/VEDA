@@ -21,7 +21,8 @@ from .. import config, db, events, jobs, reviews
 from ..agent import local_antigravity, registry
 from ..integrations import primavera
 from ..mcpc import horizun, schedule_ops
-from ..pipeline import actuals, field_capture, ingest, linking, proposals, security
+from ..pipeline import (actuals, conflicts, field_capture, ingest, linking,
+                        proof_contract, proposals, security)
 
 router = APIRouter(prefix="/api")
 
@@ -449,6 +450,48 @@ async def create_field_capture(pid: str, payload: str = Form(...),
 def generate_actuals(pid: str):
     _project_or_404(pid)
     return actuals.generate_for_project(pid)
+
+
+@router.get("/projects/{pid}/conflicts")
+def list_conflicts(pid: str, status: str = ""):
+    _project_or_404(pid)
+    rows = conflicts.list_for_project(pid, status=status)
+    return {"conflicts": rows, "open": sum(1 for row in rows if row["status"] == "open")}
+
+
+@router.post("/conflicts/{conflict_id}/resolve")
+def resolve_conflict(conflict_id: str, body: dict = Body(...)):
+    try:
+        return {"conflict": conflicts.resolve(
+            conflict_id, resolution=str(body.get("resolution") or ""),
+            resolved_by=str(body.get("by") or "human"))}
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/projects/{pid}/actuals-certificates")
+def list_actuals_certificates(pid: str):
+    _project_or_404(pid)
+    return {"certificates": proof_contract.list_for_project(pid),
+            "contract": {"type": proof_contract.CONTRACT_TYPE,
+                         "version": proof_contract.CONTRACT_VERSION}}
+
+
+@router.post("/projects/{pid}/actuals-certificates/generate")
+def generate_actuals_certificates(pid: str, body: dict = Body(default={})):
+    _project_or_404(pid)
+    uid = body.get("activity_uid")
+    try:
+        if uid not in (None, ""):
+            return {"certificates": [proof_contract.certify(
+                pid, int(uid), created_by=str(body.get("by") or "planning.manager"))],
+                    "count": 1}
+        return proof_contract.certify_project(
+            pid, created_by=str(body.get("by") or "planning.manager"))
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 async def _store_ingestion_batch(pid: str, files: list[UploadFile] | None,
@@ -1390,7 +1433,9 @@ def list_proposals(pid: str, state: str = ""):
         params.append(state)
     rows = [proposals.shape(p) for p in
             db.q(sql + " ORDER BY created_at DESC", params)]
-    return {"proposals": rows}
+    groups = db.q("SELECT * FROM proposal_groups WHERE project_id=? "
+                  "ORDER BY created_at DESC", [pid])
+    return {"proposals": rows, "groups": groups}
 
 
 @router.get("/integrations/primavera/status")
@@ -1421,6 +1466,22 @@ async def proposal_decision(pid_: str, body: dict = Body(...)):
         raise HTTPException(404, "no such proposal")
     approve = bool(body.get("approve"))
     who = body.get("by", "human")
+    if p.get("proposal_group_id"):
+        group_id = p["proposal_group_id"]
+        if not approve:
+            return proposals.approve_group(group_id, approved_by=who,
+                                           approve_it=False, note=body.get("note"))
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: proposals.dry_run_group(group_id))
+        try:
+            proposals.approve_group(group_id, approved_by=who, approve_it=True,
+                                    note=body.get("note"))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        res = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: proposals.execute_group(group_id, actor=who))
+        return {"ok": res.get("ok"), "approved": True,
+                "proposal_group_id": group_id, "execution": res}
     proposals.approve(pid_, approved_by=who, approve_it=approve,
                       note=body.get("note"))
     if not approve:
@@ -1431,6 +1492,37 @@ async def proposal_decision(pid_: str, body: dict = Body(...)):
     res = await asyncio.get_event_loop().run_in_executor(
         None, lambda: proposals.execute(pid_, actor=who))
     return {"ok": res.get("ok"), "approved": True, "execution": res}
+
+
+@router.post("/proposal-groups/{group_id}/dry-run")
+async def proposal_group_dry_run(group_id: str):
+    try:
+        return await asyncio.get_event_loop().run_in_executor(
+            None, lambda: proposals.dry_run_group(group_id))
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/proposal-groups/{group_id}/decision")
+async def proposal_group_decision(group_id: str, body: dict = Body(...)):
+    approve = bool(body.get("approve"))
+    who = body.get("by", "human")
+    try:
+        if not approve:
+            return proposals.approve_group(group_id, approved_by=who,
+                                           approve_it=False, note=body.get("note"))
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: proposals.dry_run_group(group_id))
+        proposals.approve_group(group_id, approved_by=who, approve_it=True,
+                                note=body.get("note"))
+        execution = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: proposals.execute_group(group_id, actor=who))
+        return {"ok": execution.get("ok"), "approved": True,
+                "proposal_group_id": group_id, "execution": execution}
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 # =====================================================================
@@ -1499,23 +1591,7 @@ def project_events(pid: str, limit: int = 100):
 # =====================================================================
 #  Agent bridge (local_antigravity provider)
 # =====================================================================
-@router.get("/agent/inbox")
-def agent_inbox():
-    """The Antigravity agent polls this to find pending work."""
-    # Never hand the IDE stale inbox work from a job that already failed,
-    # timed out, or belonged to a previous server process.
-    item = db.q1(
-        "SELECT i.* FROM agent_inbox i JOIN jobs j ON j.id=i.job_id "
-        "WHERE i.status='pending' AND j.status='running' "
-        "ORDER BY i.created_at ASC LIMIT 1")
-    if not item:
-        return {"item": None}
-    db.update("agent_inbox", item["id"], {
-        "status": "claimed", "claimed_at": db.now()})
-    # Wake the waiting provider thread instead of letting it discover the claim
-    # on its next poll -- this is what makes the bridge feel immediate.
-    local_antigravity.notify(item["id"])
-    # Gather project context for the agent
+def _agent_inbox_payload(item: dict) -> dict:
     project = db.q1("SELECT * FROM projects WHERE id=?",
                     [item["project_id"]]) or {}
     files = db.q("SELECT id, filename, kind, size_bytes, security_state "
@@ -1535,6 +1611,52 @@ def agent_inbox():
             "created_at": item.get("created_at"),
         },
     }
+
+
+@router.post("/projects/{pid}/field-captures/interpret")
+def interpret_field_capture(pid: str, body: dict = Body(...)):
+    _project_or_404(pid)
+    try:
+        return field_capture.interpret(pid, body)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/agent/inbox")
+def agent_inbox():
+    """The Antigravity agent polls this to find pending work."""
+    local_antigravity.consumer_seen()
+    # Never hand the IDE stale inbox work from a job that already failed,
+    # timed out, or belonged to a previous server process.
+    item = db.q1(
+        "SELECT i.* FROM agent_inbox i JOIN jobs j ON j.id=i.job_id "
+        "WHERE i.status='pending' AND j.status='running' "
+        "ORDER BY i.created_at ASC LIMIT 1")
+    if not item:
+        return {"item": None}
+    db.update("agent_inbox", item["id"], {
+        "status": "claimed", "claimed_at": db.now()})
+    # Wake the waiting provider thread instead of letting it discover the claim
+    # on its next poll -- this is what makes the bridge feel immediate.
+    local_antigravity.notify(item["id"])
+    return _agent_inbox_payload(item)
+
+
+@router.get("/agent/inbox/item/{inbox_id}")
+def agent_inbox_item(inbox_id: str):
+    """Claim one exact item dispatched by the desktop Agent API."""
+    item = db.q1(
+        "SELECT i.* FROM agent_inbox i JOIN jobs j ON j.id=i.job_id "
+        "WHERE i.id=? AND i.status IN ('pending','claimed') "
+        "AND j.status='running' LIMIT 1", [inbox_id])
+    if not item:
+        raise HTTPException(404, "no active inbox item")
+    if item.get("status") == "pending":
+        db.update("agent_inbox", inbox_id, {
+            "status": "claimed", "claimed_at": db.now()})
+        item["status"] = "claimed"
+    local_antigravity.notify(inbox_id)
+    return _agent_inbox_payload(item)
 
 
 @router.post("/agent/tool")

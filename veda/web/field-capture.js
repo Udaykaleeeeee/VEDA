@@ -3,7 +3,8 @@
   const DB = 'veda-field-sync';
   const STORE = 'outbox';
   const state = { files: [], recording: null, chunks: [], recognition: null,
-    activity: null, coordinates: null, transcriptDirty: false, timer: null };
+    activity: null, coordinates: null, transcriptDirty: false, timer: null,
+    extracted: false, projectId: null };
 
   const el = (id) => document.getElementById(id);
   const escapeHtml = (value) => window.esc(value);
@@ -157,6 +158,8 @@
         const blob = new Blob(state.chunks, {type});
         state.files.push({name: 'field-voice-' + Date.now() + '.webm', type, blob});
         stream.getTracks().forEach(track => track.stop()); drawFiles();
+        setTimeout(() => interpretEvent(state.projectId).catch(error =>
+          window.toast('Could not extract the event card: ' + error.message, 'bad')), 250);
       };
       state.recording.start(500);
       button.classList.add('recording'); button.textContent = 'Stop recording';
@@ -204,22 +207,82 @@
     if (!query.trim()) { list.innerHTML = ''; return; }
     const response = await window.api('/projects/' + projectId + '/activities?q=' +
       encodeURIComponent(query.trim()) + '&milestone=0&limit=8');
-    list.innerHTML = response.activities.length ? response.activities.map(activity =>
+    renderActivityCandidates(response.activities || []);
+  }
+
+  function selectActivity(activity) {
+    state.activity = activity;
+    el('capture-activity-search').value = (activity.display_id || '') + ' · ' + activity.name;
+    el('capture-activity-results').innerHTML = '';
+    el('capture-activity-selected').innerHTML = '<b>Linked to ' +
+      escapeHtml(activity.display_id || 'UID ' + activity.uid) + '</b><span>' +
+      escapeHtml(activity.name) + '</span><button type="button" id="capture-activity-clear">Change</button>';
+    el('capture-activity-clear').onclick = () => { state.activity = null;
+      el('capture-activity-search').value = ''; el('capture-activity-selected').innerHTML = ''; };
+  }
+
+  function renderActivityCandidates(activities) {
+    const list = el('capture-activity-results');
+    list.innerHTML = activities.length ? activities.map(activity =>
       '<button type="button" data-capture-activity="' + activity.uid + '">' +
       '<b>' + escapeHtml(activity.display_id || 'UID ' + activity.uid) + '</b>' +
       '<span>' + escapeHtml(activity.name) + '</span><small>' +
       escapeHtml(activity.wbs || '') + ' · ' + escapeHtml(activity.status || '—') +
       '</small></button>').join('') : '<div class="capture-no-result">No matching activities.</div>';
-    list.querySelectorAll('[data-capture-activity]').forEach((button, index) => button.onclick = () => {
-      state.activity = response.activities[index];
-      el('capture-activity-search').value = (state.activity.display_id || '') + ' · ' + state.activity.name;
-      list.innerHTML = '';
-      el('capture-activity-selected').innerHTML = '<b>Linked to ' +
-        escapeHtml(state.activity.display_id || 'UID ' + state.activity.uid) + '</b><span>' +
-        escapeHtml(state.activity.name) + '</span><button type="button" id="capture-activity-clear">Change</button>';
-      el('capture-activity-clear').onclick = () => { state.activity = null;
-        el('capture-activity-search').value = ''; el('capture-activity-selected').innerHTML = ''; };
-    });
+    list.querySelectorAll('[data-capture-activity]').forEach((button, index) =>
+      button.onclick = () => selectActivity(activities[index]));
+  }
+
+  async function interpretEvent(projectId) {
+    const text = el('capture-original').value.trim();
+    if (!text) return window.toast('Speak or type the field observation first', 'bad');
+    const button = el('capture-extract'); button.disabled = true; button.textContent = 'Extracting event…';
+    let result;
+    if (navigator.onLine) {
+      const response = await fetch('/api/projects/' + encodeURIComponent(projectId) +
+        '/field-captures/interpret', {method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text, occurred_at: el('capture-occurred').value,
+            location_label: el('capture-location-label').value})});
+      if (!response.ok) {
+        let message = 'Event extraction failed';
+        try { message = (await response.json()).detail || message; } catch (_) {}
+        button.disabled = false; button.textContent = 'Extract editable event card';
+        throw new Error(message);
+      }
+      result = await response.json();
+    } else {
+      const pct = text.match(/\b(100(?:\.0+)?|\d{1,2}(?:\.\d+)?)\s*%/);
+      result = {draft: {event_state: /finish|complete/i.test(text) ? 'finish' :
+        /start|commenc/i.test(text) ? 'start' : 'progress',
+        observed_progress: pct ? Number(pct[1]) : null, confidence: null,
+        asset_tags: []}, activity_candidates: []};
+    }
+    const draft = result.draft || {};
+    const radio = document.querySelector('[name="capture-event"][value="' +
+      (draft.event_state || 'progress') + '"]');
+    if (radio) radio.checked = true;
+    if (draft.observed_progress !== null && draft.observed_progress !== undefined)
+      el('capture-progress').value = draft.observed_progress;
+    if (draft.remaining_days !== null && draft.remaining_days !== undefined)
+      el('capture-remaining').value = draft.remaining_days;
+    if (draft.location_label && !el('capture-location-label').value)
+      el('capture-location-label').value = draft.location_label;
+    updateEventFields();
+    renderActivityCandidates(result.activity_candidates || []);
+    const summary = [];
+    if (draft.action) summary.push('<span>Action · ' + escapeHtml(draft.action) + '</span>');
+    summary.push('<span>Event · ' + escapeHtml(draft.event_state || 'progress') + '</span>');
+    if (draft.quantity !== null && draft.quantity !== undefined)
+      summary.push('<span>Quantity · ' + escapeHtml(draft.quantity + ' ' + (draft.unit || '')) + '</span>');
+    if ((draft.asset_tags || []).length)
+      summary.push('<span>Assets · ' + escapeHtml(draft.asset_tags.join(', ')) + '</span>');
+    summary.push('<span>Draft only · edit before confirming</span>');
+    el('capture-extracted-summary').innerHTML = summary.join('');
+    for (const id of ['capture-structured-card', 'capture-place-card', 'capture-confirm-card'])
+      el(id).hidden = false;
+    if (!state.transcriptDirty) el('capture-confirmed').value = text;
+    state.extracted = true;
+    button.disabled = false; button.textContent = 'Re-extract event card';
   }
 
   function capturePayload() {
@@ -251,17 +314,22 @@
 
   function reset() {
     state.files = []; state.activity = null; state.coordinates = null;
-    state.transcriptDirty = false;
+    state.transcriptDirty = false; state.extracted = false;
     el('capture-client-id').value = clientId();
     el('capture-original').value = ''; el('capture-confirmed').value = '';
     el('capture-progress').value = ''; el('capture-remaining').value = '';
     el('capture-activity-search').value = ''; el('capture-activity-selected').innerHTML = '';
     el('capture-location-label').value = ''; el('capture-location-status').textContent = 'Location is optional and permission-based.';
+    el('capture-extracted-summary').innerHTML = '';
+    for (const id of ['capture-structured-card', 'capture-place-card', 'capture-confirm-card'])
+      el(id).hidden = true;
+    el('capture-extract').textContent = 'Extract editable event card';
     drawFiles();
   }
 
   async function submit(projectId) {
     const payload = capturePayload();
+    if (!state.extracted) return window.toast('Extract and review the editable event card first', 'bad');
     if (!payload.confirmed_text) return window.toast('Confirm the field update text first', 'bad');
     const item = {id: payload.client_capture_id, projectId, payload,
       attachments: state.files.slice(), createdAt: Date.now()};
@@ -293,7 +361,7 @@
 
   async function bind(projectId) {
     state.files = []; state.activity = null; state.coordinates = null;
-    state.transcriptDirty = false;
+    state.transcriptDirty = false; state.extracted = false; state.projectId = projectId;
     el('capture-client-id').value = clientId();
     const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
     if (!el('capture-occurred').value) el('capture-occurred').value = now.toISOString().slice(0, 16);
@@ -304,10 +372,19 @@
     el('capture-audio-file').onchange = (event) => { addInputFiles(event.target.files); event.target.value = ''; };
     el('capture-voice').onclick = toggleRecording;
     el('capture-location').onclick = locate;
+    el('capture-extract').onclick = () => interpretEvent(projectId).catch(error => {
+      el('capture-extract').disabled = false;
+      el('capture-extract').textContent = 'Extract editable event card';
+      window.toast(error.message, 'bad');
+    });
     el('capture-confirmed').oninput = () => { state.transcriptDirty = true; };
     el('capture-original').oninput = (event) => {
       if (!state.transcriptDirty) el('capture-confirmed').value = event.target.value;
       el('capture-transcript-source').textContent = 'Typed field note—review and confirm below.';
+      state.extracted = false;
+      for (const id of ['capture-structured-card', 'capture-place-card', 'capture-confirm-card'])
+        el(id).hidden = true;
+      el('capture-extract').textContent = 'Extract editable event card';
     };
     const applyLanguage = () => {
       const language = el('capture-language').value;

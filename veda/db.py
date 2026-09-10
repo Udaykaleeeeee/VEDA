@@ -50,6 +50,12 @@ CREATE TABLE IF NOT EXISTS files (
   source_mode TEXT DEFAULT 'file',
   relative_path TEXT,
   duplicate_of TEXT,
+  document_type TEXT,
+  relevance_state TEXT DEFAULT 'pending',
+  relevance_score REAL,
+  relevance_reason TEXT,
+  schema_name TEXT,
+  schema_version TEXT,
   created_at REAL
 );
 CREATE INDEX IF NOT EXISTS ix_files_project ON files(project_id);
@@ -383,6 +389,23 @@ CREATE TABLE IF NOT EXISTS execution_event_sources (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_exec_event_source ON execution_event_sources(execution_event_id, evidence_id);
 
+-- Reality-to-plan projection is set-valued. One physical observation may be
+-- part of, aggregate, split across, or sit outside the current schedule.
+CREATE TABLE IF NOT EXISTS execution_event_links (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  execution_event_id TEXT NOT NULL,
+  activity_uid INTEGER,
+  relation TEXT NOT NULL,
+  confidence REAL,
+  basis TEXT,
+  created_at REAL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_exec_event_link
+  ON execution_event_links(execution_event_id, activity_uid, relation);
+CREATE INDEX IF NOT EXISTS ix_exec_event_link_project
+  ON execution_event_links(project_id, activity_uid, relation);
+
 -- A field capture is the user-confirmed envelope around one observation. Its
 -- client id makes mobile/offline retries idempotent; media remains in the
 -- immutable files store and only ids/metadata live here.
@@ -554,6 +577,82 @@ CREATE TABLE IF NOT EXISTS proposals (
   provenance TEXT DEFAULT 'AI_INFERENCE',
   created_at REAL, updated_at REAL
 );
+
+-- The group is the approval boundary for coupled actuals (for example finish,
+-- 100% complete and zero remaining duration). It must never be half-approved.
+CREATE TABLE IF NOT EXISTS proposal_groups (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_event_id TEXT,
+  purpose TEXT,
+  member_count INTEGER DEFAULT 0,
+  validation_state TEXT DEFAULT 'pending',
+  dryrun_state TEXT DEFAULT 'not_run',
+  approval_state TEXT DEFAULT 'pending',
+  approved_by TEXT, approved_at REAL,
+  execution_state TEXT DEFAULT 'not_executed',
+  verification_state TEXT DEFAULT 'not_verified',
+  decision_note TEXT,
+  created_at REAL, updated_at REAL
+);
+CREATE INDEX IF NOT EXISTS ix_proposal_group_project
+  ON proposal_groups(project_id, approval_state, created_at DESC);
+
+-- Conflicts survive individual analysis jobs and remain open until a person or
+-- a later verified source resolves them.
+CREATE TABLE IF NOT EXISTS conflicts (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  conflict_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  entity_type TEXT, entity_id TEXT,
+  activity_uid INTEGER, field TEXT,
+  official_value TEXT, observed_value TEXT,
+  detail TEXT,
+  evidence_ids_json TEXT,
+  source_event_id TEXT, proposal_group_id TEXT,
+  status TEXT DEFAULT 'open',
+  resolution TEXT, resolved_by TEXT, resolved_at REAL,
+  provenance TEXT DEFAULT 'DETERMINISTIC_CALCULATION',
+  created_at REAL, updated_at REAL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_conflict_key
+  ON conflicts(project_id, conflict_key);
+CREATE INDEX IF NOT EXISTS ix_conflict_project
+  ON conflicts(project_id, status, activity_uid);
+
+-- One versioned proof contract is supplied in this release: pipeline welding
+-- execution evidenced by DPR + welding + NDT/NCR registers.
+CREATE TABLE IF NOT EXISTS execution_contracts (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  activity_uid INTEGER NOT NULL,
+  contract_type TEXT NOT NULL,
+  contract_version TEXT NOT NULL,
+  config_json TEXT,
+  state TEXT DEFAULT 'active',
+  created_at REAL, updated_at REAL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_execution_contract
+  ON execution_contracts(project_id, activity_uid, contract_type, contract_version);
+
+CREATE TABLE IF NOT EXISTS actuals_certificates (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  activity_uid INTEGER NOT NULL,
+  contract_id TEXT,
+  contract_type TEXT NOT NULL,
+  contract_version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  proof_hash TEXT NOT NULL,
+  certificate_json TEXT NOT NULL,
+  proposal_group_id TEXT,
+  supersedes_id TEXT,
+  created_by TEXT,
+  created_at REAL
+);
+CREATE INDEX IF NOT EXISTS ix_certificate_project
+  ON actuals_certificates(project_id, activity_uid, created_at DESC);
 CREATE TABLE IF NOT EXISTS artifacts (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -687,6 +786,18 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def close() -> None:
+    """Close this thread's connection (primarily for isolated tools/tests)."""
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        with contextlib.suppress(Exception):
+            conn.close()
+    _local.conn = None
+    _local.batch_depth = 0
+    _COLS_CACHE.clear()
+    clear_probe_cache()
+
+
 @contextlib.contextmanager
 def transaction():
     """Group many writes into one commit.
@@ -730,6 +841,12 @@ def init_db() -> None:
         ("source_mode", "ALTER TABLE files ADD COLUMN source_mode TEXT DEFAULT 'file'"),
         ("duplicate_of", "ALTER TABLE files ADD COLUMN duplicate_of TEXT"),
         ("relative_path", "ALTER TABLE files ADD COLUMN relative_path TEXT"),
+        ("document_type", "ALTER TABLE files ADD COLUMN document_type TEXT"),
+        ("relevance_state", "ALTER TABLE files ADD COLUMN relevance_state TEXT DEFAULT 'pending'"),
+        ("relevance_score", "ALTER TABLE files ADD COLUMN relevance_score REAL"),
+        ("relevance_reason", "ALTER TABLE files ADD COLUMN relevance_reason TEXT"),
+        ("schema_name", "ALTER TABLE files ADD COLUMN schema_name TEXT"),
+        ("schema_version", "ALTER TABLE files ADD COLUMN schema_version TEXT"),
     ):
         if name not in cols:
             conn.execute(ddl)
