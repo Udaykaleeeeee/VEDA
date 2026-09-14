@@ -112,7 +112,7 @@ def route_question(message: str, *, previous_mode: str | None = None,
     """Choose the cheapest lane that cannot weaken project accuracy."""
     text = str(message or "").strip()
     if force_deep:
-        return QuestionRoute("deep", "external project context requires grounding")
+        return QuestionRoute("deep", "grounded project context explicitly requested")
     if instant_reply(text, project_name, history) is not None:
         return QuestionRoute("instant", "deterministic conversational intent")
     if _PROJECT_TERMS.search(text) or _PROJECT_IDENTIFIER.search(text):

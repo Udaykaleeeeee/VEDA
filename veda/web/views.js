@@ -120,6 +120,7 @@ VIEWS.capture = async (pid) => {
     'The first confirmed update will appear here with its activity link and proposal state.');
 
   return head('Field capture', 'Fast on site · confirmed by a person · safe offline',
+    '<span class="tag blue">Site reporter workspace</span>' +
     '<button class="btn sm" onclick="go(\'files\')">Files</button>' +
     '<button class="btn sm" onclick="go(\'proposals\')">Edit proposals</button>') +
     '<div class="capture-status-row"><div class="capture-connectivity" id="capture-connectivity">Checking connection…</div>' +
@@ -127,6 +128,28 @@ VIEWS.capture = async (pid) => {
     '<button class="btn sm" id="capture-sync-now">Sync now</button></div></div>' +
     '<input id="capture-client-id" type="hidden">' +
     '<div class="capture-layout"><section class="capture-composer">' +
+      '<div class="capture-section capture-source-section"><div class="capture-step"><span>1</span><div><b>Tell VEDA what happened</b>' +
+      '<small>Speak naturally or type a note. VEDA turns it into an editable event card.</small></div></div>' +
+      '<div class="capture-action-grid"><button class="capture-action voice" id="capture-voice" type="button"><i>●</i><b>Record voice</b><small>Audio is kept as evidence</small></button>' +
+      '<button class="capture-action photo" id="capture-photo" type="button"><i>▣</i><b>Take photos</b><small>Use camera or gallery</small></button></div>' +
+      '<input type="file" id="capture-photo-file" accept="image/*" capture="environment" multiple hidden>' +
+      '<input type="file" id="capture-audio-file" accept="audio/*" capture hidden>' +
+      '<div id="capture-media-tray" class="capture-media-tray"></div>' +
+      '<div class="capture-fields-two capture-language-row"><label><span>Language</span><select class="inp" id="capture-language">' +
+      '<option value="en">English</option><option value="hi-IN">हिन्दी / Hinglish</option>' +
+      '<option value="ar">العربية</option><option value="es">Español</option>' +
+      '<option value="fr">Français</option><option value="ur">اردو</option></select></label>' +
+      '<div class="capture-transcript-state" id="capture-transcript-state"><i></i><span>Waiting for an observation</span></div></div>' +
+      '<label class="capture-wide-label"><span>Raw note / draft voice transcript <em>kept as source evidence</em></span>' +
+      '<textarea class="inp" id="capture-original" rows="4" placeholder="Describe the work, exact area, quantities, blockers, and what you personally observed."></textarea></label>' +
+      '<div class="capture-transcript-source" id="capture-transcript-source">Type a note, or record voice for a browser draft transcript.</div>' +
+      '<div class="capture-correction"><div class="capture-correction-head"><div><b>Correct the transcript before extraction</b>' +
+      '<small>VEDA extracts only from the corrected words below. The raw version stays unchanged in the audit trail.</small></div>' +
+      '<button class="btn sm" id="capture-reset-transcript" type="button">Reset to raw</button></div>' +
+      '<textarea class="inp" id="capture-confirmed" rows="4" placeholder="Review names, activity IDs, quantities and dates before extraction."></textarea>' +
+      '<div class="capture-correction-note" id="capture-correction-note">No transcript corrections yet.</div></div>' +
+      '<button class="btn primary capture-extract" id="capture-extract" type="button">Extract editable event card</button></div>' +
+
       '<div class="capture-section capture-structured-section" id="capture-structured-card" hidden><div class="capture-step"><span>2</span><div><b>Review the extracted event</b>' +
       '<small>Edit every field before confirming. Nothing below is accepted silently.</small></div></div>' +
       '<div class="capture-extracted-summary" id="capture-extracted-summary"></div>' +
@@ -142,19 +165,7 @@ VIEWS.capture = async (pid) => {
       '<label><span>Remaining working days <em>optional</em></span><input class="inp" id="capture-remaining" type="number" min="0" step="0.5" inputmode="decimal" placeholder="Only if explicitly known"></label></div>' +
       '<div class="note" id="capture-finish-rule" hidden>Finish creates a governed Actual Finish, 100% complete, and zero remaining-duration proposal bundle.</div></div>' +
 
-      '<div class="capture-section capture-source-section"><div class="capture-step"><span>1</span><div><b>Tell VEDA what happened</b>' +
-      '<small>Speak naturally or type a note. VEDA turns it into an editable event card.</small></div></div>' +
-      '<div class="capture-action-grid"><button class="capture-action voice" id="capture-voice" type="button"><i>●</i><b>Record voice</b><small>Audio is kept as evidence</small></button>' +
-      '<button class="capture-action photo" id="capture-photo" type="button"><i>▣</i><b>Take photos</b><small>Use camera or gallery</small></button></div>' +
-      '<input type="file" id="capture-photo-file" accept="image/*" capture="environment" multiple hidden>' +
-      '<input type="file" id="capture-audio-file" accept="audio/*" capture hidden>' +
-      '<div id="capture-media-tray" class="capture-media-tray"></div>' +
-      '<label class="capture-wide-label"><span>Spoken or typed observation</span>' +
-      '<textarea class="inp" id="capture-original" rows="4" placeholder="Describe the work, exact area, quantities, blockers, and what you personally observed."></textarea></label>' +
-      '<div class="capture-transcript-source" id="capture-transcript-source">Type a note, or record voice for an optional on-device draft transcript.</div>' +
-      '<button class="btn primary capture-extract" id="capture-extract" type="button">Extract editable event card</button></div>' +
-
-      '<div class="capture-section capture-structured-section" id="capture-place-card" hidden><div class="capture-step"><span>2</span><div><b>Place and activity</b>' +
+      '<div class="capture-section capture-structured-section" id="capture-place-card" hidden><div class="capture-step"><span>3</span><div><b>Place and activity</b>' +
       '<small>Explicit selection prevents the wrong schedule activity from receiving actuals.</small></div></div>' +
       '<label class="capture-wide-label"><span>Schedule activity <em>search by ID, name, or WBS</em></span>' +
       '<input class="inp" id="capture-activity-search" autocomplete="off" placeholder="Start typing an activity…"></label>' +
@@ -165,15 +176,9 @@ VIEWS.capture = async (pid) => {
       '<div class="capture-location-box"><button class="btn" id="capture-location" type="button">Use device location</button>' +
       '<small id="capture-location-status">Location is optional and permission-based.</small></div></div></div>' +
 
-      '<div class="capture-section capture-confirm-section" id="capture-confirm-card" hidden><div class="capture-step"><span>3</span><div><b>Confirm before sending</b>' +
+      '<div class="capture-section capture-confirm-section" id="capture-confirm-card" hidden><div class="capture-step"><span>4</span><div><b>Confirm before sending</b>' +
       '<small>VEDA uses these exact words; a transcript is never accepted silently.</small></div></div>' +
-      '<div class="capture-fields-two"><label><span>Language</span><select class="inp" id="capture-language">' +
-      '<option value="en">English</option><option value="hi-IN">हिन्दी</option>' +
-      '<option value="ar">العربية</option><option value="es">Español</option>' +
-      '<option value="fr">Français</option><option value="ur">اردو</option></select></label>' +
-      '<div class="capture-confirm-badge"><i>✓</i><span><b>Human confirmation</b><small>Required for every event</small></span></div></div>' +
-      '<label class="capture-wide-label"><span>Confirmed field update</span>' +
-      '<textarea class="inp" id="capture-confirmed" rows="5" placeholder="Review or translate the observation, then confirm the exact wording here."></textarea></label>' +
+      '<div class="capture-confirm-badge"><i>✓</i><span><b>Human confirmation</b><small>The corrected transcript and every extracted field stay editable until you save.</small></span></div>' +
       '<div class="capture-policy"><span>Evidence saved</span><i>→</i><span>Activity identity</span><i>→</i><span>Proposal only</span><i>→</i><span>Planner approval</span></div>' +
       '<button class="btn primary capture-save" id="capture-save" type="button">Confirm & save update</button>' +
       '<p class="capture-safety">Saving never writes to Primavera. If an official value differs, VEDA holds the conflict for a planner.</p></div>' +
@@ -1430,14 +1435,29 @@ function reviewKindLabel(kind) {
     String(kind || 'Decision').replace(/_/g, ' ');
 }
 
-function candidateExplanation(c, rid) {
+function scoreComponentRows(c) {
+  return '<div class="score-components" aria-label="Eight-component match score">' +
+    (c.score_components || []).map(component => {
+      const value = component.score === null || component.score === undefined
+        ? null : Math.max(0, Math.min(100, Number(component.score) * 100));
+      return '<div class="score-component"><span>' + E(component.label) + '</span>' +
+        '<i><b style="width:' + (value === null ? 0 : value) + '%"></b></i><em>' +
+        (value === null ? 'N/E' : num(value, 0)) + '</em></div>';
+    }).join('') + '</div>';
+}
+
+function candidateExplanation(c, rid, policy) {
+  policy = policy || {};
+  const strongAt = Number(policy.strong_confidence || .85) * 100;
+  const reviewAt = Number(policy.review_confidence || .70) * 100;
+  const gapAt = Number(policy.ambiguity_margin || .12) * 100;
   const probability = c.probability === null || c.probability === undefined
     ? null : Math.max(0, Math.min(100, Number(c.probability) * 100));
   const confidence = probability === null
     ? (c.rank_score === null || c.rank_score === undefined
       ? '<span class="match-score neutral">Not scored</span>'
       : '<span class="match-score neutral">Rank ' + num(c.rank_score, 3) + '</span>')
-    : '<span class="match-score ' + (probability >= 90 ? 'strong' : probability >= 70 ? 'review' : 'weak') + '">' +
+    : '<span class="match-score ' + (probability >= strongAt ? 'strong' : probability >= reviewAt ? 'review' : 'weak') + '">' +
       num(probability, 0) + '% ' + (c.calibration_is_empirical ? 'calibrated' : 'cold-start estimate') + '</span>';
   const support = (c.supporting_signals || []).length
     ? '<div class="signal-list supports">' + (c.supporting_signals || []).map(s =>
@@ -1447,8 +1467,19 @@ function candidateExplanation(c, rid) {
     ? '<div class="signal-list conflicts">' + (c.conflicting_signals || []).map(s =>
         '<span><i>!</i>' + E(s) + '</span>').join('') + '</div>' : '';
   const option = c.option_label || '';
-  return '<article class="candidate-card">' +
-    '<div class="candidate-head"><div><div class="candidate-id">' +
+  const gap = c.separation === null || c.separation === undefined
+    ? null : Number(c.separation) * 100;
+  const gate = Number(c.rank || 0) === 1
+    ? '<div class="candidate-gate ' + E(c.review_band || 'weak') + '"><div><b>' +
+      (c.ambiguous ? 'Human choice required' : c.review_band === 'strong'
+        ? 'Strong candidate' : c.review_band === 'review' ? 'Review carefully' : 'Weak evidence') +
+      '</b><span>' + (gap === null ? 'Only one candidate retained' :
+        num(gap, 0) + ' point lead · ' + (gap >= gapAt ? 'clear of ' : 'inside ') +
+        num(gapAt, 0) + ' point ambiguity gate') + '</span></div>' +
+      '<small>Suggestion only · never schedule-write authority</small></div>' : '';
+  return '<article class="candidate-card' + (Number(c.rank || 0) === 1 ? ' top' : '') + '">' +
+    '<div class="candidate-head"><span class="candidate-rank">#' + int(c.rank || 0) +
+      '</span><div><div class="candidate-id">' +
       E(c.display_id || ('UID ' + c.uid)) + (c.critical ? ' · CRITICAL' : '') +
       '</div><h4>' + E(c.name || 'Unnamed schedule activity') + '</h4></div>' +
       confidence + '</div>' +
@@ -1457,7 +1488,8 @@ function candidateExplanation(c, rid) {
       '<span>' + day(c.planned_start) + ' → ' + day(c.planned_finish) + '</span>' +
       (c.status ? '<span>' + E(c.status.replace(/_/g, ' ')) + '</span>' : '') +
       (c.matched_records ? '<span>' + int(c.matched_records) + ' record(s)</span>' : '') +
-    '</div><div class="candidate-signals"><div><b>Why it fits</b>' + support +
+    '</div>' + gate + scoreComponentRows(c) +
+    '<div class="candidate-signals"><div><b>Why it fits</b>' + support +
       '</div>' + (conflict ? '<div><b>What conflicts</b>' + conflict + '</div>' : '') +
     '</div>' +
     (option ? '<button class="btn primary choose-match" data-attention-answer="' +
@@ -1465,14 +1497,23 @@ function candidateExplanation(c, rid) {
     '</article>';
 }
 
-function attentionReviewCard(v) {
+function attentionReviewCard(v, policy, position, total) {
   const options = v.options || [];
   const candidates = v.candidate_explanations || [];
   const leave = options.find(o => o === 'Leave unassigned for now');
   const samples = v.affected_sample || [];
+  const strong = Math.round(Number((policy || {}).strong_confidence || .85) * 100);
+  const review = Math.round(Number((policy || {}).review_confidence || .70) * 100);
+  const gap = Math.round(Number((policy || {}).ambiguity_margin || .12) * 100);
+  const safetyCopy = v.kind === 'clarification'
+    ? 'This decision only settles the evidence-to-activity identity.'
+    : v.kind === 'security_review'
+      ? 'This decision only governs how the quarantined source is handled.'
+      : 'This decision resolves the review case; governed schedule writes remain separate.';
   return '<article class="inbox-item"><header><div><div class="eyebrow">' +
     E(reviewKindLabel(v.kind)) + '</div><h2>' + E(v.title) + '</h2></div>' +
     '<div class="inbox-item-meta">' +
+      '<span class="count-pill">Case ' + int(position || 1) + ' / ' + int(total || 1) + '</span>' +
       (v.priority === 'high' ? '<span class="tag amber">High priority</span>' : '') +
       '<span class="count-pill">' + int(v.affected_count || 1) +
       ' record' + (Number(v.affected_count || 1) === 1 ? '' : 's') + '</span>' +
@@ -1480,25 +1521,50 @@ function attentionReviewCard(v) {
     '<div class="review-workspace"><section class="evidence-pane">' +
       '<div class="pane-label"><span>Field evidence</span><small>What was reported</small></div>' +
       (samples.length ? samples.map(s => '<button class="evidence-quote" data-open-evidence="' +
-        E(s.id) + '"><span>“' + E(s.description) + '”</span><small>' +
+        E(s.id) + '"><div class="evidence-type-row"><b>' +
+        E(String(s.document_type || 'field record').toUpperCase()) + '</b>' +
+        (s.observation_type ? '<em>' + E(String(s.observation_type).replace(/_/g, ' ')) + '</em>' : '') +
+        (s.extraction_confidence !== null && s.extraction_confidence !== undefined
+          ? '<i>' + num(Number(s.extraction_confidence) * 100, 0) + '% extracted</i>' : '') +
+        '</div><span>“' + E(s.description) + '”</span><small>' +
         E(s.source_file || 'Source') + (s.locator ? ' · ' + E(s.locator) : '') +
         ' · ' + day(s.date) + (s.discipline ? ' · ' + E(s.discipline) : '') +
         '</small></button>').join('') : '<div class="signal-empty">No sample rows available.</div>') +
       (v.detail ? '<div class="review-note">' + E(v.detail) + '</div>' : '') +
     '</section><section class="candidate-pane">' +
       '<div class="pane-label"><span>Schedule candidates</span><small>Why VEDA suggested them</small></div>' +
-      (candidates.length ? candidates.map(c => candidateExplanation(c, v.id)).join('') :
+      (candidates.length ? '<div class="match-policy" title="Reviewer orientation thresholds; automation remains empirically gated">' +
+        '<span><b>' + strong + '%</b> strong</span><span><b>' + review + '%</b> review</span>' +
+        '<span><b>' + gap + ' pt</b> separation</span></div>' +
+        candidates.map(c => candidateExplanation(c, v.id, policy)).join('') :
         '<div class="generic-options">' + options.filter(o => o !== leave).map(o =>
           '<button class="btn" data-attention-answer="' + E(o) + '" data-rid="' +
           E(v.id) + '">' + E(o) + '</button>').join('') + '</div>') +
     '</section></div>' +
     '<footer class="inbox-actions"><span>No official schedule value changes here. ' +
-      'This decision only settles the evidence-to-activity identity.</span><div class="spacer"></div>' +
+      E(safetyCopy) + '</span><div class="spacer"></div>' +
       (leave ? '<button class="btn" data-attention-answer="' + E(leave) +
         '" data-rid="' + E(v.id) + '">Leave unassigned</button>' : '') +
       (!options.length ? '<input class="inp" data-attention-free="' + E(v.id) +
         '" placeholder="Type your answer"><button class="btn primary" data-attention-free-go="' +
         E(v.id) + '">Apply</button>' : '') + '</footer></article>';
+}
+
+function reviewCaseQueue(reviews, selectedId) {
+  return '<aside class="case-rail" tabindex="0" aria-label="Open review cases"><div class="case-rail-head">' +
+    '<span>Open cases</span><b>' + int(reviews.length) + '</b></div><div class="case-rail-list">' +
+    reviews.map((review, index) => {
+      const sample = (review.affected_sample || [])[0] || {};
+      const top = (review.candidate_explanations || [])[0] || {};
+      const confidence = top.probability === null || top.probability === undefined
+        ? null : Number(top.probability) * 100;
+      return '<button class="case-rail-item ' + (String(review.id) === String(selectedId) ? 'active' : '') +
+        '" data-review-case="' + E(review.id) + '"><small>' + E(reviewKindLabel(review.kind)) +
+        ' · ' + (index + 1) + '</small><b>' + E(review.title) + '</b><span>' +
+        E(sample.description || review.question || '') + '</span><em>' +
+        (confidence === null ? int(review.affected_count || 1) + ' record(s)' :
+          num(confidence, 0) + '% top candidate') + '</em></button>';
+    }).join('') + '</div><div class="case-rail-hint">Use ↑ / ↓ to move between cases</div></aside>';
 }
 
 function inboxFilterCard(id, label, count, detail, current, tone) {
@@ -1517,8 +1583,13 @@ VIEWS.attention = async (pid, params) => {
     (focus === 'security' && v.kind === 'security_review') ||
     (focus === 'failures' && v.kind === 'failed_validation'));
   const proposals = focus === 'all' || focus === 'changes' ? (r.proposals || []) : [];
+  const selected = reviews.find(v => String(v.id) === String(params.review || '')) || reviews[0];
+  const selectedIndex = selected ? reviews.indexOf(selected) : -1;
   const stateNote = '<div class="note ' + (ps.code === 'retry' ? 'danger' : ps.code === 'needs_input' || ps.code === 'choose_schedule' ? 'warn' : '') + '" style="margin-bottom:14px"><b>' + E(ps.label || 'Project state') + '</b><br>' + E(ps.detail || '') + '</div>';
-  const reviewHtml = reviews.length ? reviews.map(attentionReviewCard).join('') : '';
+  const reviewHtml = selected ? '<div class="review-queue-shell">' +
+    reviewCaseQueue(reviews, selected.id) + '<section class="case-workstation">' +
+    attentionReviewCard(selected, r.match_policy || {}, selectedIndex + 1, reviews.length) +
+    '</section></div>' : '';
   const proposalHtml = proposals.length ? '<div class="section-divider"><span>Governed schedule changes</span><small>Dry-run and approval required</small></div>' + proposals.map(proposalCard).join('') : '';
   const deferred = r.deferred_evidence ? '<div class="note" style="margin-top:12px"><b>' + int(r.deferred_evidence) + ' evidence record(s) deliberately left unassigned.</b><br>These are deferred by a human choice, not unresolved by the system.</div>' : '';
   const recent = (r.recent_decisions || []).length ? '<details class="recent-decisions"><summary>Recent evidence decisions <span>' + int((r.recent_decisions || []).length) + '</span></summary>' + (r.recent_decisions || []).map(v =>
@@ -1530,10 +1601,10 @@ VIEWS.attention = async (pid, params) => {
       'Open the evidence workbench to inspect them individually. ' +
       '<button class="btn sm" onclick="go(\'evidence\',{state:\'needs_review\'})">Open evidence</button></div>' : '';
   return head('Review Inbox', 'Resolve exceptions, not spreadsheets',
-      '<span class="tag grey">Evidence identity layer</span>') +
+      '<span class="tag blue">Planner decision workstation</span>') +
     '<div class="review-brief"><div><div class="eyebrow">Decision brief</div>' +
       '<h2>' + (r.attention_count ? int(r.attention_count) + ' item' +
-        (Number(r.attention_count) === 1 ? '' : 's') + ' need a person' : 'No decisions waiting') +
+        (Number(r.attention_count) === 1 ? ' needs' : 's need') + ' a person' : 'No decisions waiting') +
       '</h2><p>Every match shows its source, schedule candidate, supporting evidence, ' +
       'contradictions, and confidence basis before you act.</p></div>' +
       '<div class="safety-rule"><b>Write safety</b><span>Confirming a match never writes to the schedule. ' +
@@ -1551,9 +1622,20 @@ VIEWS.attention = async (pid, params) => {
         : 'Choose another inbox category or return when new evidence arrives.')) + recent + deferred);
 };
 
-VIEWS.bind_attention = (pid) => {
+VIEWS.bind_attention = (pid, params) => {
   document.querySelectorAll('[data-inbox-focus]').forEach(b => b.onclick = () =>
     go('attention', { focus: b.dataset.inboxFocus }));
+  const caseButtons = Array.from(document.querySelectorAll('[data-review-case]'));
+  caseButtons.forEach(b => b.onclick = () =>
+    go('attention', {focus: params.focus || 'all', review: b.dataset.reviewCase}));
+  const caseRail = document.querySelector('.case-rail');
+  if (caseRail) caseRail.onkeydown = (event) => {
+    if (!caseButtons.length || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const current = Math.max(0, caseButtons.findIndex(b => b.classList.contains('active')));
+    const next = event.key === 'ArrowDown'
+      ? Math.min(caseButtons.length - 1, current + 1) : Math.max(0, current - 1);
+    if (next !== current) { event.preventDefault(); caseButtons[next].click(); }
+  };
   document.querySelectorAll('[data-open-evidence]').forEach(b => b.onclick = () =>
     go('evidence-detail', { id: b.dataset.openEvidence }));
   const send = async (rid, answer) => {
@@ -2072,7 +2154,9 @@ VIEWS.ask = async (pid) => {
     'placeholder="Ask about an activity, a date, progress, a risk…">' + E(draft) + '</textarea>' +
     '<button class="ask-send" id="qgo" type="button" aria-label="Send question">' +
     '<i aria-hidden="true">➤</i></button></div>' +
-    '<div class="ask-dock-hint mono">Enter to send · Shift+Enter for a new line · read-only</div>' +
+    '<div class="ask-dock-tools"><label class="ask-grounding"><input id="ask-grounded" type="checkbox" ' +
+    ((VIEWS._ask[pid] || {}).forceGrounded ? 'checked' : '') + '><span><i></i>Deep-check project sources</span></label>' +
+    '<div class="ask-dock-hint mono">Auto routes simple chat quickly · grounded mode stays read-only</div></div>' +
     '</div></div>';
 };
 
@@ -2082,6 +2166,7 @@ VIEWS.bind_ask = (pid) => {
   const scroll = document.getElementById('ask-scroll');
   const thread = document.getElementById('ask-thread');
   const spacer = document.getElementById('ask-tail-spacer');
+  const grounded = document.getElementById('ask-grounded');
   if (!box || !btn || !scroll) return;
 
   const st = VIEWS._ask[pid] = VIEWS._ask[pid] || {};
@@ -2157,7 +2242,9 @@ VIEWS.bind_ask = (pid) => {
     btn.disabled = true;
     box.disabled = true;
     try {
-      await P('/projects/' + pid + '/ask', { question: text });
+      await P('/projects/' + pid + '/ask', {
+        question: text, force_grounded: Boolean(grounded && grounded.checked),
+      });
       VIEWS._askDraft[pid] = '';
       box.value = ''; grow();
       st.pin = true; st.pinSticky = true; st.follow = true;
@@ -2176,6 +2263,7 @@ VIEWS.bind_ask = (pid) => {
   document.querySelectorAll('[data-suggest]').forEach(b => b.onclick = () => {
     box.value = b.dataset.suggest; VIEWS._askDraft[pid] = box.value; grow(); box.focus();
   });
+  if (grounded) grounded.onchange = () => { st.forceGrounded = grounded.checked; };
   if (!VIEWS._askDraft[pid]) box.focus();
 };
 

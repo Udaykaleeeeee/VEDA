@@ -18,6 +18,27 @@ MAX_ATTACHMENTS = 8
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 MAX_TOTAL_BYTES = 80 * 1024 * 1024
 
+_FINISH_WORDS = re.compile(
+    r"\b(?:finish(?:ed)?|complet(?:e[dt]?)?|done|khatam|poora|pura)\b|"
+    r"\bho\s+g(?:aya|ya|ayi|yi)\b|(?:पूरा|समाप्त|खत्म|हो\s+गया)", re.I)
+_START_WORDS = re.compile(
+    r"\b(?:start(?:ed|d)?|strt(?:ed)?|commenc(?:e|ed)|begin|began|shuru|aarambh)\b|"
+    r"(?:शुरू|आरंभ)", re.I)
+
+
+def _suggested_event_state(text: str, classified: dict) -> str:
+    """Normalise common English, typo-tolerant Hinglish and Hindi field phrasing."""
+    if _FINISH_WORDS.search(text):
+        return "finish"
+    if _START_WORDS.search(text):
+        return "start"
+    state = str(classified.get("state") or "").lower()
+    if state in {"complete", "completed", "finished"}:
+        return "finish"
+    if state in {"started", "commenced"}:
+        return "start"
+    return state if state in _EVENT_STATES else "progress"
+
 
 def interpret(project_id: str, payload: dict) -> dict:
     """Extract a draft event card without persisting or confirming anything."""
@@ -30,7 +51,8 @@ def interpret(project_id: str, payload: dict) -> dict:
     event_date = occurred[:10] if re.fullmatch(r"\d{4}-\d{2}-\d{2}.*", occurred) else None
     progress_match = re.search(r"\b(100(?:\.0+)?|\d{1,2}(?:\.\d+)?)\s*%", text)
     remaining_match = re.search(
-        r"\b(\d+(?:\.\d+)?)\s*(?:working\s+)?days?\s+(?:remain|remaining|left)\b", text, re.I)
+        r"\b(\d+(?:\.\d+)?)\s*(?:(?:working\s+)?days?\s+"
+        r"(?:remain(?:ing)?|left)|din\s+(?:baaki|baki|left))\b", text, re.I)
     quantity_match = re.search(
         r"\b(\d+(?:\.\d+)?)\s*(joints?|welds?|m3|m2|m|km|tonnes?|kg|units?)\b", text, re.I)
     draft = {
@@ -44,7 +66,7 @@ def interpret(project_id: str, payload: dict) -> dict:
     }
     info = event_model.classify_event(draft)
     canonical = reality_graph.canonical_observation(draft)
-    suggested_state = info.get("state") if info.get("state") in _EVENT_STATES else "progress"
+    suggested_state = _suggested_event_state(text, info)
     candidates: list[dict] = []
     if db.q1("SELECT uid FROM activities WHERE project_id=? AND COALESCE(is_summary,0)=0 LIMIT 1",
              [project_id]):

@@ -214,7 +214,7 @@ def main():
         interpreted = field_capture.interpret(project_id, {
             "text": "Completed 1 weld W-TEST-009 at Spread A, 100%",
             "occurred_at": "2026-08-03T10:00"})
-        check(interpreted["draft"]["event_state"] in {"progress", "finish"}, interpreted)
+        check(interpreted["draft"]["event_state"] == "finish", interpreted)
         print("VEDA 0.4 execution-proof regression: PASS")
     finally:
         db.close()

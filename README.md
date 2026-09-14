@@ -70,6 +70,23 @@ an auditable record with a SHA-256 evidence hash. See
 
 ---
 
+## v0.4.1 — evidence-first review, corrected voice and grounded retrieval
+
+v0.4.1 introduces a planner decision workstation with source evidence beside
+ranked schedule candidates. Each candidate exposes eight grouped score components,
+supporting and conflicting signals, and explicit 85/70/12 reviewer-orientation
+thresholds. Those thresholds never authorise a schedule write; automatic linking
+retains its held-out 99% target-precision gate and actuals remain governed.
+
+Field capture now preserves the raw voice/browser transcript, requires correction
+before extraction, invalidates stale event cards after edits, and recognises common
+Hindi, Hinglish and typo variants. Ask VEDA gains optional query-adaptive grounded
+retrieval across exact identifiers, hybrid schedule search, typed evidence,
+canonical execution events and one-hop relationship context with stable citations.
+See `V0.4.1_RELEASE_NOTES.md`.
+
+---
+
 ## v0.4.0 — execution proof and governed actuals
 
 v0.4.0 turns uploaded field paperwork into a typed, relevance-scored execution

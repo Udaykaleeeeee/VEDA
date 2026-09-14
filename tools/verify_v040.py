@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TESTS = [
     "v040_execution_proof_regression_test.py",
     "field_capture_actuals_regression_test.py",
+    "review_voice_rag_regression_test.py",
     "execution_lifecycle_regression_test.py",
     "dcr_pipeline_acceptance_test.py",
     "source_semantics_smoke_test.py",

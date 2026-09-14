@@ -35,7 +35,8 @@ HORIZUN_READ_TOOLS = [
 VEDA_TOOLS = [
     "veda_project_overview", "veda_activities", "veda_relationships",
     "veda_schedule_quality", "veda_files", "veda_read_file", "veda_evidence",
-    "veda_human_answers",
+    "veda_grounded_search", "veda_activity_search", "veda_activity_context",
+    "veda_execution_events", "veda_human_answers",
 ]
 
 

@@ -329,6 +329,9 @@ def question_prompt(question: str, project: dict, snapshot: dict | None,
         lines.append(sched_line + ".")
     lines.append("")
     lines.append("""Use only the relevant tools for the question:
+- veda_grounded_search for a compact, query-adaptive pack of citable activity,
+  evidence, execution-event and one-hop network context. Prefer it as the first
+  retrieval step; cite its stable activity:/evidence:/event:/relationship: IDs.
 - veda_activities to find the activities the question is about
 - veda_relationships to see what drives them
 - veda_evidence and veda_read_file for what the field reported

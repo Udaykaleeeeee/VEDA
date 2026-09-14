@@ -1324,7 +1324,8 @@ def attention(pid: str):
         ids = r.get("affected_ids") or []
         if ids:
             r["affected_sample"] = db.q(
-                "SELECT id, source_file, locator, date, crew, discipline, description "
+                "SELECT id, source_file, locator, date, crew, discipline, description, "
+                "document_type, observation_type, extraction_method, extraction_confidence "
                 "FROM evidence WHERE id IN (" + ",".join("?" for _ in ids[:6]) + ")", ids[:6])
             r["candidate_explanations"] = _review_candidate_explanations(pid, r, ids)
     props = [proposals.shape(p) for p in db.q(
@@ -1351,6 +1352,16 @@ def attention(pid: str):
             "proposals": props, "recent_decisions": recent,
             "deferred_evidence": deferred, "unresolved_evidence": unresolved,
             "evidence_state_counts": state_counts, "inbox_counts": inbox_counts,
+            "match_policy": {
+                "strong_confidence": 0.85,
+                "review_confidence": 0.70,
+                "ambiguity_margin": 0.12,
+                "automation_note": (
+                    "These thresholds orient the reviewer. Automatic identity linking "
+                    "still requires a held-out validated threshold at 99% target precision; "
+                    "no match authorises a schedule write."
+                ),
+            },
             "attention_count": len(open_reviews) + len(props) + (1 if unresolved and not open_reviews else 0)}
 
 
@@ -1383,7 +1394,7 @@ def _review_candidate_explanations(pid: str, review: dict, evidence_ids: list) -
     for link in links:
         grouped.setdefault(link.get("activity_uid"), []).append(link)
     result = []
-    for uid in ordered_options:
+    for rank, uid in enumerate(ordered_options, 1):
         rows = grouped.get(uid, [])
         act = activities.get(uid) or {}
         support: list[str] = []
@@ -1401,7 +1412,29 @@ def _review_candidate_explanations(pid: str, review: dict, evidence_ids: list) -
                        for row in rows if row.get("rank_score") is not None]
         empirical = any(bool(row.get("calibration_is_empirical")) for row in rows)
         modes = [row.get("calibration_mode") for row in rows if row.get("calibration_mode")]
+        feature_row = max(rows, key=lambda row: float(row.get("rank_score") or 0.0),
+                          default={})
+        features = db.jloads(feature_row.get("feature_json"), {}) or {}
+        component_specs = [
+            ("Text meaning", ["rerank", "dense", "sparse"]),
+            ("Engineering ID", ["asset_exact", "asset_alias", "asset_ocr", "asset_overlap_count"]),
+            ("Action / phase", ["action", "phase"]),
+            ("Place / WBS", ["location", "wbs", "wbs_ancestor", "wbs_code"]),
+            ("Discipline", ["discipline"]),
+            ("Time fit", ["temporal", "date_corroboration"]),
+            ("Network logic", ["graph", "driving_pred_ready", "relationship_consistency"]),
+            ("Corroboration", ["source_trust", "historical_sequence", "agent_agreement"]),
+        ]
+        components = []
+        for label, keys in component_specs:
+            values = [float(features[key]) for key in keys
+                      if features.get(key) is not None]
+            score = max(values) if label in {"Text meaning", "Engineering ID"} \
+                else (sum(values) / len(values) if values else None)
+            components.append({"label": label, "score": None if score is None else
+                               round(max(0.0, min(1.0, score)), 4)})
         result.append({
+            "rank": rank,
             "uid": uid,
             "option_label": next((label for label, option_uid in option_uids.items()
                                   if option_uid == uid), None),
@@ -1418,9 +1451,29 @@ def _review_candidate_explanations(pid: str, review: dict, evidence_ids: list) -
             "calibration_mode": modes[0] if modes else None,
             "calibration_is_empirical": empirical,
             "rank_score": max(rank_scores) if rank_scores else None,
+            "score_components": components,
             "supporting_signals": support[:5],
             "conflicting_signals": conflict[:4],
         })
+    if result:
+        first = result[0]
+        second = result[1] if len(result) > 1 else None
+        top_value = first.get("probability")
+        next_value = second.get("probability") if second else None
+        if top_value is None:
+            top_value = first.get("rank_score")
+            next_value = second.get("rank_score") if second else None
+        gap = None if top_value is None or next_value is None else max(
+            0.0, float(top_value) - float(next_value))
+        first["separation"] = gap
+        probability = first.get("probability")
+        first["review_band"] = (
+            "strong" if probability is not None and probability >= 0.85 and
+            (gap is None or gap >= 0.12)
+            else "review" if probability is not None and probability >= 0.70
+            else "weak"
+        )
+        first["ambiguous"] = bool(gap is not None and gap < 0.12)
     return result
 
 
@@ -1592,6 +1645,8 @@ def project_events(pid: str, limit: int = 100):
 #  Agent bridge (local_antigravity provider)
 # =====================================================================
 def _agent_inbox_payload(item: dict) -> dict:
+    from ..mcpc import veda_server as vtools
+
     project = db.q1("SELECT * FROM projects WHERE id=?",
                     [item["project_id"]]) or {}
     files = db.q("SELECT id, filename, kind, size_bytes, security_state "
@@ -1608,6 +1663,11 @@ def _agent_inbox_payload(item: dict) -> dict:
                         for k in ("id", "name", "client", "location",
                                   "description", "status")},
             "files": files,
+            "tools": [{"name": tool.get("name"),
+                       "description": tool.get("description"),
+                       "input_schema": tool.get("inputSchema")}
+                      for tool in vtools.TOOLS],
+            "tool_endpoint": "/api/agent/tool",
             "created_at": item.get("created_at"),
         },
     }
@@ -1735,7 +1795,10 @@ def ask(pid: str, body: dict = Body(...)):
     question = (body.get("question") or "").strip()
     if not question:
         raise HTTPException(400, "question is required")
-    ev = events.emit(events.USER_QUESTION, pid, {"question": question},
+    ev = events.emit(events.USER_QUESTION, pid, {
+        "question": question,
+        "force_grounded": bool(body.get("force_grounded")),
+    },
                      source="website")
     return {"event": ev["id"], "note": "the agent will investigate before answering"}
 

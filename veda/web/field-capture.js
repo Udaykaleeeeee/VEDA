@@ -128,6 +128,51 @@
     if (el('capture-finish-rule')) el('capture-finish-rule').hidden = value !== 'finish';
   }
 
+  function paintVoiceButton(recording) {
+    const button = el('capture-voice');
+    if (!button) return;
+    button.classList.toggle('recording', Boolean(recording));
+    button.setAttribute('aria-pressed', String(Boolean(recording)));
+    button.innerHTML = recording
+      ? '<i>■</i><b>Stop recording</b><small>Draft transcript is updating</small>'
+      : '<i>●</i><b>Record voice</b><small>Audio is kept as evidence</small>';
+  }
+
+  function updateTranscriptState(extracted) {
+    const original = el('capture-original');
+    const confirmed = el('capture-confirmed');
+    const status = el('capture-transcript-state');
+    const note = el('capture-correction-note');
+    if (!original || !confirmed) return;
+    const raw = original.value.trim();
+    const corrected = confirmed.value.trim();
+    const changed = Boolean(raw && corrected && raw !== corrected);
+    if (status) {
+      status.className = 'capture-transcript-state ' + (!raw ? 'empty' : changed ? 'corrected' : 'ready');
+      status.innerHTML = '<i></i><span>' + (!raw ? 'Waiting for an observation' : changed
+        ? 'Transcript corrected by reporter' : 'Transcript ready for review') + '</span>';
+    }
+    if (note) note.textContent = !corrected ? 'Confirm the words VEDA should extract.' : changed
+      ? (extracted ? 'Your corrected transcript was used for this event card.' :
+        'Correction saved locally—extract the event card from these words.')
+      : (extracted ? 'The reviewed transcript was used for this event card.' :
+        'No transcript corrections yet.');
+  }
+
+  function invalidateExtraction(message) {
+    state.extracted = false;
+    state.activity = null;
+    if (el('capture-activity-search')) el('capture-activity-search').value = '';
+    if (el('capture-activity-selected')) el('capture-activity-selected').innerHTML = '';
+    if (el('capture-activity-results')) el('capture-activity-results').innerHTML = '';
+    for (const id of ['capture-structured-card', 'capture-place-card', 'capture-confirm-card']) {
+      if (el(id)) el(id).hidden = true;
+    }
+    const button = el('capture-extract');
+    if (button) button.textContent = message || 'Extract editable event card';
+    updateTranscriptState(false);
+  }
+
   function setTranscript(text, source) {
     const original = el('capture-original');
     const confirmed = el('capture-confirmed');
@@ -135,6 +180,7 @@
     if (confirmed && !state.transcriptDirty) confirmed.value = text;
     const hint = el('capture-transcript-source');
     if (hint) hint.textContent = source;
+    invalidateExtraction('Extract corrected transcript');
   }
 
   async function toggleRecording() {
@@ -142,7 +188,7 @@
     if (state.recording && state.recording.state === 'recording') {
       state.recording.stop();
       if (state.recognition) { try { state.recognition.stop(); } catch (_) {} }
-      button.classList.remove('recording'); button.textContent = 'Record voice';
+      paintVoiceButton(false);
       return;
     }
     if (!navigator.mediaDevices || !window.MediaRecorder) {
@@ -162,7 +208,7 @@
           window.toast('Could not extract the event card: ' + error.message, 'bad')), 250);
       };
       state.recording.start(500);
-      button.classList.add('recording'); button.textContent = 'Stop recording';
+       paintVoiceButton(true);
       const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (Recognition) {
         const recognition = new Recognition();
@@ -183,7 +229,7 @@
         el('capture-transcript-source').textContent =
           'Voice is recorded as evidence. Type or paste the words to confirm the update.';
       }
-    } catch (error) { window.toast('Microphone unavailable: ' + error.message, 'bad'); }
+    } catch (error) { paintVoiceButton(false); window.toast('Microphone unavailable: ' + error.message, 'bad'); }
   }
 
   async function locate() {
@@ -234,8 +280,8 @@
   }
 
   async function interpretEvent(projectId) {
-    const text = el('capture-original').value.trim();
-    if (!text) return window.toast('Speak or type the field observation first', 'bad');
+    const text = el('capture-confirmed').value.trim();
+    if (!text) return window.toast('Review and confirm the transcript before extraction', 'bad');
     const button = el('capture-extract'); button.disabled = true; button.textContent = 'Extracting event…';
     let result;
     if (navigator.onLine) {
@@ -252,12 +298,14 @@
       result = await response.json();
     } else {
       const pct = text.match(/\b(100(?:\.0+)?|\d{1,2}(?:\.\d+)?)\s*%/);
-      result = {draft: {event_state: /finish|complete/i.test(text) ? 'finish' :
-        /start|commenc/i.test(text) ? 'start' : 'progress',
+      result = {draft: {event_state: /finish|complete|done|khatam|poora|pura|ho\s+g(?:aya|ya|ayi|yi)|पूरा|समाप्त|खत्म|हो\s+गया/i.test(text) ? 'finish' :
+        /start|commenc|begin|began|shuru|aarambh|शुरू|आरंभ/i.test(text) ? 'start' : 'progress',
         observed_progress: pct ? Number(pct[1]) : null, confidence: null,
         asset_tags: []}, activity_candidates: []};
     }
     const draft = result.draft || {};
+    el('capture-progress').value = '';
+    el('capture-remaining').value = '';
     const radio = document.querySelector('[name="capture-event"][value="' +
       (draft.event_state || 'progress') + '"]');
     if (radio) radio.checked = true;
@@ -280,8 +328,8 @@
     el('capture-extracted-summary').innerHTML = summary.join('');
     for (const id of ['capture-structured-card', 'capture-place-card', 'capture-confirm-card'])
       el(id).hidden = false;
-    if (!state.transcriptDirty) el('capture-confirmed').value = text;
     state.extracted = true;
+    updateTranscriptState(true);
     button.disabled = false; button.textContent = 'Re-extract event card';
   }
 
@@ -324,6 +372,8 @@
     for (const id of ['capture-structured-card', 'capture-place-card', 'capture-confirm-card'])
       el(id).hidden = true;
     el('capture-extract').textContent = 'Extract editable event card';
+    el('capture-transcript-source').textContent = 'Type a note, or record voice for a browser draft transcript.';
+    updateTranscriptState(false); paintVoiceButton(false);
     drawFiles();
   }
 
@@ -377,14 +427,20 @@
       el('capture-extract').textContent = 'Extract editable event card';
       window.toast(error.message, 'bad');
     });
-    el('capture-confirmed').oninput = () => { state.transcriptDirty = true; };
+    el('capture-confirmed').oninput = () => {
+      state.transcriptDirty = el('capture-confirmed').value !== el('capture-original').value;
+      invalidateExtraction('Re-extract corrected transcript');
+    };
     el('capture-original').oninput = (event) => {
       if (!state.transcriptDirty) el('capture-confirmed').value = event.target.value;
       el('capture-transcript-source').textContent = 'Typed field note—review and confirm below.';
-      state.extracted = false;
-      for (const id of ['capture-structured-card', 'capture-place-card', 'capture-confirm-card'])
-        el(id).hidden = true;
-      el('capture-extract').textContent = 'Extract editable event card';
+      invalidateExtraction('Extract corrected transcript');
+    };
+    el('capture-reset-transcript').onclick = () => {
+      el('capture-confirmed').value = el('capture-original').value;
+      state.transcriptDirty = false;
+      invalidateExtraction('Extract corrected transcript');
+      el('capture-confirmed').focus();
     };
     const applyLanguage = () => {
       const language = el('capture-language').value;
@@ -395,6 +451,7 @@
     };
     el('capture-language').onchange = applyLanguage;
     applyLanguage();
+    updateTranscriptState(false); paintVoiceButton(false);
     el('capture-activity-search').oninput = (event) => {
       clearTimeout(state.timer); state.timer = setTimeout(() =>
         searchActivities(projectId, event.target.value).catch(() => {}), 260);

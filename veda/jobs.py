@@ -1387,7 +1387,7 @@ def _run_question(job_id: str, project_id: str, payload: dict) -> dict:
     route = question_router.route_question(
         display_question,
         previous_mode=previous_mode,
-        force_deep=bool(payload.get("veda_anywhere")),
+        force_deep=bool(payload.get("veda_anywhere") or payload.get("force_grounded")),
         history=history,
         project_name=str(project.get("name") or "this project"))
     route_labels = {
