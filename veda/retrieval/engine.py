@@ -216,6 +216,22 @@ def build_activity_document(act: dict, network_context: dict | None = None) -> t
     if tags is None:
         tags = extract_asset_tags(act.get("display_id"), act.get("name"), act.get("notes"),
                                   act.get("wbs_path"), custom=custom)
+    bim_rows = []
+    if act.get("project_id") is not None and act.get("uid") is not None:
+        bim_rows = db.q(
+            "SELECT identifier_type,identifier_value,model_name,element_type "
+            "FROM bim_identifiers WHERE project_id=? AND activity_uid=? "
+            "AND status='confirmed' ORDER BY identifier_type,identifier_value",
+            [act.get("project_id"), act.get("uid")])
+    known_tags = {str(item.get("tag") or "").upper() for item in tags
+                  if isinstance(item, dict)}
+    for item in bim_rows:
+        value = str(item.get("identifier_value") or "").strip()
+        if value and value.upper() not in known_tags:
+            tags.append({"tag": value.upper(), "type": "bim", "class": "model_element",
+                         "source": "confirmed_bim_mapping",
+                         "aliases": sorted(tag_aliases(value)), "ocr_aliases": []})
+            known_tags.add(value.upper())
     locs = _json(act.get("location_tags_json"), None)
     if locs is None:
         locs = extract_location_tags(act.get("name"), act.get("wbs_path"), act.get("wbs_name"),
@@ -228,6 +244,8 @@ def build_activity_document(act: dict, network_context: dict | None = None) -> t
         "WBS path: " + str(act.get("wbs_path") or ""),
         "WBS node: " + str(act.get("wbs_name") or ""),
         "Engineering tags: " + tag_text,
+        "BIM identifiers: " + " ".join(str(row.get("identifier_value") or "") for row in bim_rows),
+        "BIM models: " + " ".join(str(row.get("model_name") or "") for row in bim_rows),
         "Location: " + " ".join(locs),
         "Canonical action: " + str(event_model.detect_action(act.get("name"))["action"] or ""),
         "Lifecycle phase: " + str(_activity_phase(act, event_model.detect_action(act.get("name"))["action"])["phase"] or ""),
@@ -239,6 +257,7 @@ def build_activity_document(act: dict, network_context: dict | None = None) -> t
     ]
     text = "\n".join(p for p in parts if p.split(":", 1)[-1].strip())
     meta = {"asset_tags": tags, "asset_aliases": sorted(asset_alias_set(tags)),
+            "bim_identifiers": bim_rows,
             "location_tags": locs, "event_types": event_types(act.get("name")),
             "canonical_action": event_model.detect_action(act.get("name"))["action"],
             "lifecycle_phase": _activity_phase(act, event_model.detect_action(act.get("name"))["action"])["phase"],

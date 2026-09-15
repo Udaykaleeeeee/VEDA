@@ -25,7 +25,7 @@ The repository already contains unusually strong foundations for that thesis:
 | P0 | Field-first capture | Supervisors need a fast mobile report with voice, photo, location, offline queue and confirmation. | First end-to-end slice implemented: installable capture route, media/text/location, explicit multilingual confirmation, activity search, IndexedDB retry outbox and idempotent server persistence. Hardening remains. |
 | P0 | Actuals proposal generation | Confirmed execution events must become governed Actual Start, Actual Finish, Remaining Duration or Percent Complete proposals. | Deterministic, idempotent start/progress/finish policy implemented for confirmed field captures. Proposal-group approval and the P1 conflict workbench remain. |
 | P0 | Primavera adapter | OIL's target system needs real P6 REST/SyncService integration with environment-safe simulation. | Sandbox-first Activity API boundary implemented with OAuth/configuration, field mapping, ObjectId, allow-list and duration-unit gates. A real sandbox credentialed round trip remains. |
-| P1 | Exception-driven control room | The current overview is factually rigorous but dominated by technical schedule cards. A manager needs freshness, slippage, missing reports, conflicts and decisions first. | Partial. |
+| P1 | Exception-driven dashboard | A manager needs freshness, slippage, missing reports, conflicts, hindrances and decisions first. | First execution-control slice implemented: intervention queue, schedule/field trajectory, hindrance and readiness counts with drill-through. Reporting SLA segmentation remains. |
 | P1 | Conflict and duplicate workbench | Validators and source hashing exist, but planners need a dedicated workflow for conflicting dates, duplicate execution events and multi-activity statements. | Partial. |
 | P1 | Reporting freshness and SLA | There is no clear reporting-latency model by discipline, contractor, area or source. | Missing. |
 | P1 | Role and permission model | Field reporters, planners, approvers, contracts users and administrators currently share one local interface and hard-coded actor labels. | Missing. |
@@ -33,7 +33,7 @@ The repository already contains unusually strong foundations for that thesis:
 | P2 | Cross-project knowledge | Canonical events exist per project, but reusable organization terminology, duration benchmarks, delay patterns and lessons learned are not yet a product surface. | Foundation only. |
 | P2 | Enterprise integrations | Email, SharePoint/document systems, ERP, notifications and identity providers are not connected. | Missing. |
 | P2 | Claims/evidence timeline | Audit exists, but contracts teams need a chronological, exportable evidence package per activity, delay or claim. | Partial foundation. |
-| P3 | Visual reality capture | Photo/BIM/360-degree inference can complement text evidence but should follow the textual field-to-schedule MVP. | Deferred intentionally. |
+| P3 | Visual reality capture | Photo/BIM/360-degree inference can complement text evidence but should follow the textual field-to-schedule MVP. | Optional governed BIM/model identifiers are implemented as identity evidence; photo/360 inference remains deferred. |
 
 ## Target experiences
 
@@ -54,13 +54,22 @@ The repository already contains unusually strong foundations for that thesis:
 - confirm identity without implying schedule mutation;
 - send actuals through validation, dry-run, approval and verification.
 
-### 3. Control Room — PM and management
+### 3. Dashboard — PM and management
 
 - show what needs intervention, not total record counts;
 - prioritize critical-path impact, field-versus-schedule variance, reporting
   staleness, unplanned work and unresolved conflicts;
 - provide drill-through to evidence and responsible discipline/contractor;
 - keep detailed schedule tables available as secondary expert tools.
+
+### 3a. Execution Control — planner and field coordination
+
+- show a 2/6/13-week look-ahead anchored to the supplied schedule status date;
+- distinguish ready, blocked, attention and not-assessed activities;
+- keep actual hindrances separate from possible risks and schedule-QA failures;
+- store weather, manpower and equipment as typed context evidence, not progress;
+- use BIM/model identifiers as optional exact identity signals;
+- turn explicit added-scope observations into governed create proposals only.
 
 ### 4. Knowledge and Audit — PMO, contracts and future projects
 

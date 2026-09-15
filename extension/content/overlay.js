@@ -110,6 +110,7 @@
     injection: null,
     busy: false,
     ask: null,          // { jobId, startedAt } while a question is in flight
+    voice: null,        // draft-only browser speech input for Ask VEDA
     pos: null,          // { left, top } persisted panel position
     width: 380,
   };
@@ -251,6 +252,12 @@
       '.va-muted { color: #616B7C; font-size: 11px; }',
       '.va-compose { display: flex; gap: 7px; align-items: flex-end; margin-top: 10px; }',
       '.va-compose .va-btn { flex: none; }',
+      '.va-compose .va-mic { width: 38px; padding-inline: 0; font-size: 15px; }',
+      '.va-compose .va-mic svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }',
+      '.va-compose .va-mic.va-listening { color: #071A20; background: #45C8E8; border-color: #45C8E8; box-shadow: 0 0 0 4px rgba(69,200,232,.14); }',
+      '.va-compose .va-mic:disabled { opacity: .55; cursor: wait; }',
+      '.va-compose-status { min-height: 15px; margin-top: 5px; }',
+      '.va-compose-status.va-warn { color: #E4D9A8; }',
     ].join('\n');
   }
 
@@ -409,12 +416,36 @@
   };
 
   // ----------------------------------------------------------------- lifecycle
+  function stopVoiceInput(userStopped) {
+    const voice = V.voice;
+    if (!voice) return;
+    voice.userStopped = !!userStopped;
+    voice.listening = false;
+    if (voice.recognition) { try { voice.recognition.stop(); } catch (_) {} }
+    if (voice.stream) {
+      try { voice.stream.getTracks().forEach((track) => track.stop()); } catch (_) {}
+    }
+    voice.recognition = null;
+    voice.stream = null;
+    const button = shadow.querySelector('[data-va-voice]');
+    const status = shadow.querySelector('[data-va-voice-status]');
+    if (button) {
+      button.classList.remove('va-listening');
+      button.textContent = '●';
+      button.title = 'Speak question';
+      button.setAttribute('aria-label', 'Speak question');
+      button.setAttribute('aria-pressed', 'false');
+    }
+    if (status && userStopped) status.textContent = 'Voice input stopped · review the draft.';
+  }
+
   function close() {
     cleanup();
     hostEl.remove();
     window.__vedaAnywhereOverlay = null;
   }
   function cleanup() {
+    stopVoiceInput(false);
     stopPolling();
     if (V._ro) { try { V._ro.disconnect(); } catch (_) {} V._ro = null; }
     document.removeEventListener('keydown', onKey, true);
@@ -528,6 +559,7 @@
       esc(p.name) + '</option>').join('');
     sel.addEventListener('change', async () => {
       V.projectId = sel.value;
+      if (V.voice && V.voice.listening) stopVoiceInput(true);
       await send({ type: MSG.SET_ACTIVE_PROJECT, projectId: V.projectId });
       if (V.mode === 'capture') {
         V.detection = null; V._detecting = false; showCapture();
@@ -544,6 +576,119 @@
   function stopPolling() {
     clearTimeout(pollTimer); pollTimer = null;
     clearInterval(tickTimer); tickTimer = null;
+  }
+
+  function setVoiceInputUi(message, tone) {
+    const button = shadow.querySelector('[data-va-voice]');
+    const status = shadow.querySelector('[data-va-voice-status]');
+    const listening = !!(V.voice && V.voice.listening);
+    const micIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"></path></svg>';
+    if (button) {
+      button.classList.toggle('va-listening', listening);
+      button.innerHTML = listening ? '<span aria-hidden="true">■</span>' : micIcon;
+      button.title = listening ? 'Stop speaking' : 'Speak question';
+      button.setAttribute('aria-label', listening ? 'Stop speaking' : 'Speak question');
+      button.setAttribute('aria-pressed', listening ? 'true' : 'false');
+    }
+    if (status) {
+      status.className = 'va-muted va-compose-status' + (tone ? ' ' + tone : '');
+      status.textContent = message || '';
+    }
+  }
+
+  function voiceInputError(error) {
+    const denied = error && (error.name === 'NotAllowedError' || error.name === 'SecurityError' ||
+      error.error === 'not-allowed' || error.error === 'service-not-allowed');
+    const message = denied
+      ? 'Microphone permission was denied for this page. Allow it, then try again.'
+      : error && (error.name === 'NotFoundError' || error.error === 'audio-capture')
+        ? 'No microphone is available. Check the browser input and try again.'
+        : 'Voice input is unavailable here. Type your question instead.';
+    stopVoiceInput(false);
+    setVoiceInputUi(message, 'va-warn');
+  }
+
+  async function toggleVoiceInput() {
+    if (V.voice && V.voice.listening) {
+      stopVoiceInput(true);
+      setVoiceInputUi('Voice input stopped · review the draft.');
+      return;
+    }
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setVoiceInputUi('Voice input is not supported in this browser. Type instead.', 'va-warn');
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setVoiceInputUi('This browser cannot request microphone access. Type instead.', 'va-warn');
+      return;
+    }
+    const button = shadow.querySelector('[data-va-voice]');
+    if (button) button.disabled = true;
+    setVoiceInputUi('Requesting microphone…');
+    let acquiredStream = null;
+    try {
+      acquiredStream = await navigator.mediaDevices.getUserMedia({audio: true});
+      const recognition = new Recognition();
+      const stream = acquiredStream;
+      const voice = V.voice = {
+        recognition, stream, listening: true, userStopped: false, finalText: '', error: null,
+      };
+      const input = shadow.querySelector('[data-va-ask-input]');
+      voice.finalText = input ? input.value.trim() : '';
+      recognition.lang = navigator.language || 'en-IN';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.onresult = (event) => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const phrase = event.results[i][0].transcript.trim();
+          if (!phrase) continue;
+          if (event.results[i].isFinal) voice.finalText +=
+            (voice.finalText ? ' ' : '') + phrase;
+          else interim += (interim ? ' ' : '') + phrase;
+        }
+        const value = (voice.finalText + (interim ? ' ' + interim : '')).trim();
+        const liveInput = shadow.querySelector('[data-va-ask-input]');
+        if (!liveInput) return;
+        liveInput.value = value;
+        liveInput.dispatchEvent(new Event('input', {bubbles: true}));
+      };
+      recognition.onerror = (event) => {
+        if (event && event.error === 'aborted') return;
+        voiceInputError(event || new Error('recognition_failed'));
+      };
+      recognition.onend = () => {
+        if (!V.voice || !V.voice.listening) return;
+        const stoppedByUser = V.voice.userStopped;
+        V.voice.listening = false;
+        if (V.voice.stream) {
+          try { V.voice.stream.getTracks().forEach((track) => track.stop()); } catch (_) {}
+        }
+        V.voice.stream = null;
+        V.voice.recognition = null;
+        setVoiceInputUi(stoppedByUser
+          ? 'Voice input stopped · review the draft.'
+          : 'Voice draft ready · review before sending.');
+      };
+      const track = stream.getAudioTracks && stream.getAudioTracks()[0];
+      try {
+        if (track) recognition.start(track); else recognition.start();
+      } catch (_) {
+        try { stream.getTracks().forEach((item) => item.stop()); } catch (_) {}
+        voice.stream = null;
+        recognition.start();
+      }
+      setVoiceInputUi('Listening… speak naturally, then review the draft.');
+    } catch (error) {
+      if (acquiredStream && !(V.voice && V.voice.stream)) {
+        try { acquiredStream.getTracks().forEach((track) => track.stop()); } catch (_) {}
+      }
+      voiceInputError(error);
+    } finally {
+      if (button) button.disabled = false;
+    }
   }
 
   function projectName() {
@@ -591,18 +736,42 @@
 
     const compose = el('div', 'va-compose');
     compose.innerHTML = '<textarea rows="1" placeholder="' +
-      (V.thread.length ? 'Ask a follow-up…' : 'Ask about this text, or type your own question…') + '"></textarea>';
+      (V.thread.length ? 'Ask a follow-up…' : 'Ask about this text, or type your own question…') +
+      '" data-va-ask-input></textarea>';
     const ta = compose.querySelector('textarea');
     const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; };
     ta.addEventListener('input', grow);
+    const mic = el('button', 'va-btn va-mic');
+    mic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"></path></svg>';
+    mic.type = 'button';
+    mic.title = 'Speak question';
+    mic.setAttribute('aria-label', 'Speak question');
+    mic.setAttribute('aria-pressed', 'false');
+    mic.dataset.vaVoice = 'true';
+    mic.disabled = V.busy;
     const goBtn = el('button', 'va-btn va-primary', V.thread.length ? 'Send' : 'Ask VEDA');
     goBtn.disabled = V.busy;
     goBtn.addEventListener('click', () => doAsk(ta.value.trim()));
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doAsk(ta.value.trim()); }
     });
+    const voiceStatus = el('div', 'va-muted va-compose-status');
+    voiceStatus.dataset.vaVoiceStatus = 'true';
+    voiceStatus.setAttribute('role', 'status');
+    voiceStatus.setAttribute('aria-live', 'polite');
+    if (V.voice && V.voice.listening) {
+      mic.classList.add('va-listening');
+      mic.innerHTML = '<span aria-hidden="true">■</span>';
+      mic.title = 'Stop speaking';
+      mic.setAttribute('aria-label', 'Stop speaking');
+      mic.setAttribute('aria-pressed', 'true');
+      voiceStatus.textContent = 'Listening… speak naturally, then review the draft.';
+    }
+    mic.addEventListener('click', () => toggleVoiceInput());
+    compose.appendChild(mic);
     compose.appendChild(goBtn);
     body.appendChild(compose);
+    body.appendChild(voiceStatus);
 
     const actions = el('div', 'va-actions');
     actions.innerHTML = '<span class="va-muted">Read-only · never changes the schedule</span><span class="va-spacer"></span>';
@@ -637,6 +806,7 @@
 
   async function doAsk(followUp) {
     if (V.busy) return;
+    if (V.voice && V.voice.listening) stopVoiceInput(true);
     V.busy = true;
     if (followUp) V.thread.push({ role: 'you', text: followUp });
     const pending = { role: 'veda', pending: true, stage: 'Sending', startedAt: Date.now() };
@@ -744,6 +914,7 @@
 
   // ----- Capture in VEDA -----------------------------------------------------
   function showCapture() {
+    if (V.voice && V.voice.listening) stopVoiceInput(true);
     V.mode = 'capture';
     const body = el('div');
     body.appendChild(projectSelector());

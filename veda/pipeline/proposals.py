@@ -743,6 +743,17 @@ def execute(proposal_id: str, job_id: str | None = None,
         "updated_at": db.now(),
     })
 
+    # A BIM/model identifier attached to a governed new-activity suggestion is
+    # deliberately held against the proposal until the created task has been
+    # found by the independent read-back above. Only then does it become an
+    # activity identity signal for later field-to-schedule matching.
+    if operation == "create" and created_uid is not None and verified and not rejected:
+        db.ex("UPDATE bim_identifiers SET activity_uid=?, status='confirmed', updated_at=? "
+              "WHERE project_id=? AND proposal_id=? AND activity_uid IS NULL",
+              [created_uid, db.now(), project_id, proposal_id])
+        db.ex("DELETE FROM retrieval_documents WHERE project_id=? AND activity_uid=?",
+              [project_id, created_uid])
+
     db.insert("artifacts", {
         "project_id": project_id, "job_id": job_id, "kind": "schedule_revision",
         "title": Path(dest).name, "path": dest, "format": "mspdi",

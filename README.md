@@ -70,6 +70,23 @@ an auditable record with a SHA-256 evidence hash. See
 
 ---
 
+## v0.4.2 — execution controls and site-vision workspace
+
+v0.4.2 expands VEDA's planning-to-execution bridge with schedule timeline
+drill-down, hindrance and constraint-readiness context, governed BIM-aware
+new-activity suggestions, and safer milestone and risk interactions. The web
+shell now presents a streamlined Dashboard, improved navigation, voice input in
+Ask VEDA and VEDA Anywhere, and stable chat/reasoning behaviour.
+
+The field workspace adds editable voice observations and a CCTV/worker-video
+review experience. Local object and pose tracking can produce moving detections,
+temporal incident signals and auditable proposed observations while keeping all
+schedule updates behind the existing human-review and verification controls.
+Large camera footage and model weights remain local and are intentionally not
+stored in Git.
+
+---
+
 ## v0.4.1 — evidence-first review, corrected voice and grounded retrieval
 
 v0.4.1 introduces a planner decision workstation with source evidence beside
@@ -84,6 +101,26 @@ Hindi, Hinglish and typo variants. Ask VEDA gains optional query-adaptive ground
 retrieval across exact identifiers, hybrid schedule search, typed evidence,
 canonical execution events and one-hop relationship context with stable citations.
 See `V0.4.1_RELEASE_NOTES.md`.
+
+### Execution-control workspaces
+
+The **Schedule Timeline** is a drill-down view of stored baseline/reference,
+current schedule, schedule-recorded actual and human-verified field dates. It
+keeps those meanings visually separate and links every row back to the activity
+record.
+
+The **Execution Control** workspace adds a dated hindrance register, a 2/6/13-week
+constraint-readiness look-ahead, typed weather/manpower/equipment context and
+optional BIM/model identifiers. A missing readiness assessment is shown as
+**not assessed**, never as ready. Confirmed BIM IDs become exact retrieval
+signals; an identifier already mapped elsewhere creates a durable conflict.
+
+Reality-graph events that explicitly describe added scope can seed a governed
+create-activity proposal. They never create an activity directly: validation,
+dry-run, human approval, revision-copy write and read-after-write verification
+remain mandatory. Broader unresolved `NEW_SCOPE` relations stay preserved in
+Evidence but are not promoted into the planner queue without an explicit scope
+signal.
 
 ---
 

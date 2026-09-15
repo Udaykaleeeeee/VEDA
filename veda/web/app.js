@@ -66,14 +66,15 @@ const NAV = [
     ['attention', 'Review Inbox', 'attention'],
   ]],
   ['Control', [
-    ['overview', 'Control Room'], ['ask', 'Ask VEDA'],
+    ['overview', 'Dashboard'], ['controls', 'Execution Control'], ['ask', 'Ask VEDA'],
   ]],
   ['Field Truth', [
     ['evidence', 'Evidence', 'evidence'], ['observed', 'Field vs Schedule'],
     ['issues', 'Issues', 'issues'], ['risks', 'Risks', 'risks'],
   ]],
   ['Schedule', [
-    ['activities', 'Activities', 'activities'], ['critical', 'Critical Path', 'critical'],
+    ['timeline', 'Schedule Timeline'], ['activities', 'Activities', 'activities'],
+    ['critical', 'Critical Path', 'critical'],
     ['milestones', 'Milestones', 'milestones'], ['quality', 'Schedule QA', 'qa_failed'],
   ]],
   ['Project Data', [
@@ -89,6 +90,51 @@ const NAV = [
   ]],
 ];
 
+const NAV_ICONS = {
+  capture: '<path d="M12 5v14M5 12h14"/>',
+  files: '<path d="M3 7h7l2 2h9v10H3V7z"/>',
+  proposals: '<path d="M4 18.5V20h1.5L17 8.5 15.5 7 4 18.5zM14 8.5l1.5 1.5M14.5 5.5l1-1a1.5 1.5 0 012 0l2 2a1.5 1.5 0 010 2l-1 1"/>',
+  attention: '<path d="M4 5h16v14H4zM4 14h5l1.5 2h3L15 14h5"/>',
+  overview: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
+  controls: '<path d="M4 6h16M7 3v6M4 13h16M16 10v6M4 20h16M10 17v6"/>',
+  timeline: '<path d="M3 5h18v14H3zM7 9h7M10 13h8M5 17h9"/>',
+  ask: '<path d="M4 5h16v12H9l-5 3V5zM9 10h6M9 13h4"/>',
+  evidence: '<path d="M12 3l7 3v5c0 4.7-2.9 8-7 10-4.1-2-7-5.3-7-10V6l7-3zM8.5 12l2.2 2.2 4.8-5"/>',
+  observed: '<path d="M4 8h14M15 5l3 3-3 3M20 16H6M9 13l-3 3 3 3"/>',
+  issues: '<path d="M12 8v5M12 17h.01M12 3l10 18H2L12 3z"/>',
+  risks: '<path d="M4 19V5h10l1.5 3L20 9.5V17h-9l-1.5-3L4 12.5"/>',
+  activities: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+  critical: '<path d="M5 19V8l4-4 4 4v8l3 3M13 12h6"/>',
+  milestones: '<path d="M5 21V4M5 5h11l-2 4 2 4H5"/>',
+  quality: '<path d="M4 4h16v16H4zM8 12l2.5 2.5L16 9"/>',
+  certificates: '<path d="M7 3h10v12H7zM9 7h6M9 10h4M10 15l-1 6 3-2 3 2-1-6"/>',
+  outputs: '<path d="M6 3h8l4 4v14H6V3zM14 3v5h4M9 16l2-2 2 1 3-4"/>',
+  audit: '<path d="M12 21a9 9 0 109-9M12 7v5l3 2M3 4v5h5"/>',
+  wbs: '<path d="M12 4v5M5 9h14M5 9v4M12 9v4M19 9v4M3 13h4v4H3zM10 13h4v4h-4zM17 13h4v4h-4z"/>',
+  relationships: '<path d="M9 15l6-6M7 17H5a4 4 0 010-8h4M15 9h4a4 4 0 010 8h-4"/>',
+  baselines: '<path d="M12 3l9 5-9 5-9-5 9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/>',
+  resources: '<path d="M8 11a4 4 0 100-8 4 4 0 000 8zM2 21v-3a6 6 0 0112 0v3M16 4a3 3 0 010 6M17 14a5 5 0 015 5v2"/>',
+  assignments: '<path d="M7 5h10v16H5V5h2M9 3h6v4H9V3zM9 12h6M9 16h4"/>',
+  timephased: '<path d="M4 6h16v14H4V6zM8 3v6M16 3v6M4 10h16M8 14h3M13 14h3"/>',
+  ev: '<path d="M4 18l5-5 3 3 7-9M14 7h5v5"/>',
+  eps: '<path d="M12 3v5M6 8h12M6 8v4M18 8v4M3 12h6v5H3zM15 12h6v5h-6zM9 19h6"/>',
+  anywhere: '<path d="M12 21a9 9 0 100-18 9 9 0 000 18zM3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/>',
+  system: '<path d="M12 8a4 4 0 100 8 4 4 0 000-8zM4 12l-2-1 2-4 2 .5L8 5l.5-2h7L16 5l2 2.5 2-.5 2 4-2 1v3l2 1-2 4-2-.5L16 22H8l-.5-2.5-2 .5-2-4 2-1v-3z"/>',
+};
+
+function navIcon(id) {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+    (NAV_ICONS[id] || NAV_ICONS.activities) + '</svg>';
+}
+
+function currentNavLabel() {
+  for (const [, items] of NAV) {
+    const item = items.find(([id]) => id === S.view);
+    if (item) return item[1];
+  }
+  return 'Dashboard';
+}
+
 function toast(msg, kind) {
   const el = document.createElement('div');
   el.className = 'toast ' + (kind || '');
@@ -101,22 +147,39 @@ function toast(msg, kind) {
 function renderRail() {
   const c = S.counts || {};
   $('#rail').innerHTML = NAV.map(([grp, items]) => (
-    '<div class="grp">' + grp + '</div>' +
+    '<section class="rail-group"><div class="grp"><span>' + grp + '</span></div>' +
     items.map(([id, label, key]) => {
       const n = key ? c[key] : undefined;
       const alert = key === 'attention' && n > 0;
-      return '<a data-v="' + id + '" class="' + (S.view === id ? 'on' : '') + '">' +
-        '<span>' + label + '</span>' +
+      return '<a data-v="' + id + '" title="' + label + '" aria-label="' + label +
+        '" class="' + (S.view === id ? 'on' : '') + '">' +
+        '<span class="nav-ico">' + navIcon(id) + '</span>' +
+        '<span class="nav-label">' + label + '</span>' +
         (n !== undefined && n !== null
           ? '<span class="n' + (alert ? ' alert' : '') + '">' + n + '</span>' : '') +
         '</a>';
-    }).join('')
+    }).join('') + '</section>'
   )).join('');
   $('#rail').querySelectorAll('a').forEach(a =>
     a.onclick = () => go(a.dataset.v));
+  const page = $('#topbar-view');
+  if (page) page.textContent = currentNavLabel();
+  const notice = $('#notifications');
+  const badge = $('#notification-count');
+  const attention = Math.max(0, Number(c.attention || 0));
+  if (notice && badge) {
+    badge.hidden = attention === 0;
+    badge.textContent = attention > 99 ? '99+' : String(attention);
+    notice.setAttribute('aria-label', attention
+      ? attention + ' item' + (attention === 1 ? '' : 's') + ' need review'
+      : 'No items need review');
+  }
 }
 
 function go(view, params) {
+  if (S.view === 'ask' && view !== 'ask' && S.project && VIEWS.stopAskVoice) {
+    VIEWS.stopAskVoice(S.project);
+  }
   S.view = view; S.params = params || {};
   if (view !== 'agent') {
     clearTimeout(S.agentCompletionTimer);
@@ -124,8 +187,8 @@ function go(view, params) {
   }
   location.hash = view + (params && params.id ? '/' + params.id : '');
   document.body.classList.remove('nav-open');
-  const navToggle = $('#nav-toggle');
-  if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
+  closeProfileMenu();
+  syncNavigationToggle();
   renderRail(); syncAgentWatchdog(); render();
 }
 window.go = go;
@@ -238,25 +301,62 @@ async function refreshHealth() {
   }
 }
 
-/* ------------------------------------------------------------- theme */
-function syncThemeToggle() {
-  const b = $('#theme-toggle');
-  if (!b) return;
-  const theme = document.documentElement.dataset.theme || 'dark';
-  const next = theme === 'dark' ? 'light' : 'dark';
-  b.dataset.theme = theme;
-  b.setAttribute('aria-label', 'Switch to ' + next + ' theme');
-  const label = b.querySelector('em');
-  if (label) label.textContent = theme === 'dark' ? 'Dark' : 'Light';
-}
-
+/* The shell follows the OS colour preference. There is intentionally no
+   everyday theme control in the header; project actions stay the focus. */
 function applyTheme(theme, persist) {
   document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
   if (persist) {
     try { localStorage.setItem('veda-theme', document.documentElement.dataset.theme); }
     catch (_) { /* Theme still applies when browser storage is unavailable. */ }
   }
-  syncThemeToggle();
+}
+
+/* ------------------------------------------------------ shell controls */
+const RAIL_STATE_KEY = 'veda-navigation-collapsed';
+const desktopNavigation = () => matchMedia('(min-width: 861px)').matches;
+
+function syncNavigationToggle() {
+  const button = $('#nav-toggle');
+  if (!button) return;
+  const expanded = desktopNavigation()
+    ? !document.body.classList.contains('rail-collapsed')
+    : document.body.classList.contains('nav-open');
+  button.setAttribute('aria-expanded', String(expanded));
+  button.setAttribute('aria-label', expanded
+    ? 'Collapse workspace navigation' : 'Expand workspace navigation');
+}
+
+function restoreNavigationState() {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem(RAIL_STATE_KEY) === '1'; } catch (_) {}
+  document.body.classList.toggle('rail-collapsed', desktopNavigation() && collapsed);
+  syncNavigationToggle();
+}
+
+function toggleNavigation() {
+  if (desktopNavigation()) {
+    const collapsed = document.body.classList.toggle('rail-collapsed');
+    try { localStorage.setItem(RAIL_STATE_KEY, collapsed ? '1' : '0'); } catch (_) {}
+  } else {
+    document.body.classList.toggle('nav-open');
+  }
+  syncNavigationToggle();
+}
+
+function closeProfileMenu() {
+  const menu = $('#profile-menu');
+  const button = $('#profile-toggle');
+  if (menu) menu.hidden = true;
+  if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+function toggleProfileMenu() {
+  const menu = $('#profile-menu');
+  const button = $('#profile-toggle');
+  if (!menu || !button) return;
+  const open = menu.hidden;
+  menu.hidden = !open;
+  button.setAttribute('aria-expanded', String(open));
 }
 
 /* ------------------------------------------------------------ projects */
@@ -630,8 +730,12 @@ function connectStream() {
       maybeLeaveCompletedRun(streamProject, j);
       return;
     }
-    if (['overview', 'capture', 'attention', 'ask', 'evidence', 'outputs', 'observed',
-      'quality', 'activities', 'agent'].includes(S.view)) {
+    const captureBusy = S.view === 'capture' && window.FieldCapture &&
+      window.FieldCapture.hasUnsavedState();
+    const siteVisionBusy = S.view === 'overview' && VIEWS.hasActiveSiteVision &&
+      VIEWS.hasActiveSiteVision();
+    if (!captureBusy && !siteVisionBusy && ['overview', 'controls', 'timeline', 'capture', 'attention', 'ask', 'evidence',
+      'outputs', 'observed', 'quality', 'activities', 'agent'].includes(S.view)) {
       render();
     }
   };
@@ -674,16 +778,33 @@ window.esc = esc;
 window.api = api; window.post = post; window.toast = toast;
 
 async function init() {
-  syncThemeToggle();
-  $('#theme-toggle').onclick = () => {
-    const current = document.documentElement.dataset.theme || 'dark';
-    applyTheme(current === 'dark' ? 'light' : 'dark', true);
-  };
+  restoreNavigationState();
   const navToggle = $('#nav-toggle');
-  if (navToggle) navToggle.onclick = () => {
-    const open = document.body.classList.toggle('nav-open');
-    navToggle.setAttribute('aria-expanded', String(open));
+  if (navToggle) navToggle.onclick = toggleNavigation;
+  $('#quick-ask').onclick = () => go('ask');
+  $('#notifications').onclick = () => go('attention');
+  $('#profile-toggle').onclick = (e) => {
+    e.stopPropagation();
+    toggleProfileMenu();
   };
+  $('#profile-menu').querySelectorAll('[data-profile-go]').forEach(button => {
+    button.onclick = () => go(button.dataset.profileGo);
+  });
+  document.addEventListener('click', (e) => {
+    const shell = $('#account-shell');
+    if (shell && !shell.contains(e.target)) closeProfileMenu();
+  });
+  window.addEventListener('resize', () => {
+    if (desktopNavigation()) {
+      document.body.classList.remove('nav-open');
+      let collapsed = false;
+      try { collapsed = localStorage.getItem(RAIL_STATE_KEY) === '1'; } catch (_) {}
+      document.body.classList.toggle('rail-collapsed', collapsed);
+    } else {
+      document.body.classList.remove('rail-collapsed');
+    }
+    syncNavigationToggle();
+  });
   const systemTheme = matchMedia('(prefers-color-scheme: light)');
   systemTheme.addEventListener('change', (e) => {
     let saved = null;
@@ -707,13 +828,6 @@ async function init() {
   };
   $('#newproj').onclick = openNewProjectDialog;
   $('#delproj').onclick = openProjectDeleteDialog;
-  $('#analyze').onclick = async () => {
-    if (!S.project) return toast('Create a project first');
-    await activateCurrentProject(S.project);
-    await post('/projects/' + S.project + '/analyze');
-    toast('Analysis started for the current project.', 'good');
-    go('agent');
-  };
   // A deep link the browser companion uses to send the operator straight into
   // project creation without needing a project to already exist.
   const consumeNewProjectHash = () => {
@@ -729,6 +843,9 @@ async function init() {
   window.addEventListener('hashchange', () => {
     if (consumeNewProjectHash()) return;
     const [v, id] = location.hash.replace('#', '').split('/');
+    if (S.view === 'ask' && v !== 'ask' && S.project && VIEWS.stopAskVoice) {
+      VIEWS.stopAskVoice(S.project);
+    }
     if (v && v !== S.view) { S.view = v; S.params = id ? { id: id } : {};
                              renderRail(); syncAgentWatchdog(); render(); }
   });
@@ -745,10 +862,21 @@ async function init() {
     navigator.serviceWorker.register('/service-worker.js').catch(() => {});
   }
   window.addEventListener('focus', () => {
-    if (S.project) { refreshCounts().then(() => render()); }
+    if (S.project) {
+      refreshCounts().then(() => {
+        const captureBusy = S.view === 'capture' && window.FieldCapture &&
+          window.FieldCapture.hasUnsavedState();
+        const siteVisionBusy = S.view === 'overview' && VIEWS.hasActiveSiteVision &&
+          VIEWS.hasActiveSiteVision();
+        if (S.view !== 'ask' && !captureBusy && !siteVisionBusy) render();
+      });
+    }
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeProjectDeleteDialog(); closeNewProjectDialog(); }
+    if (e.key === 'Escape') {
+      closeProjectDeleteDialog(); closeNewProjectDialog(); closeProfileMenu();
+      document.body.classList.remove('nav-open'); syncNavigationToggle();
+    }
   });
 }
 init();

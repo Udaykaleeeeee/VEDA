@@ -15,13 +15,17 @@
   document.documentElement.dataset.theme = saved || system;
 })();
 </script>
-<link rel="stylesheet" href="/static/app.css?v=1.37">
+<link rel="stylesheet" href="/static/app.css?v=1.57">
 </head>
 <body>
 <div id="app">
   <div class="topbar">
-    <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Open workspace navigation" aria-expanded="false">☰</button>
+    <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Collapse workspace navigation"
+            aria-controls="rail" aria-expanded="true">
+      <span class="nav-glyph" aria-hidden="true"><i></i><i></i><i></i></span>
+    </button>
     <div class="brand"><b>VEDA</b><span>Project Intelligence</span></div>
+    <div class="topbar-page" aria-live="polite"><span>Workspace</span><b id="topbar-view">Dashboard</b></div>
     <div class="topbar-project">
       <select class="projpick" id="projpick" aria-label="Current project"></select>
       <div class="topbar-project-actions">
@@ -31,10 +35,28 @@
     </div>
     <div class="spacer"></div>
     <div class="chip" id="chip-job" title="Project state"><i class="dot"></i><span>idle</span></div>
-    <button class="btn sm primary" id="analyze">Run analysis</button>
-    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch color theme">
-      <span class="theme-orbit" aria-hidden="true"><i></i></span><em>Theme</em>
+    <button class="topbar-ask" id="quick-ask" type="button" title="Ask VEDA">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.15 3.85L17 8l-3.85 1.15L12 13l-1.15-3.85L7 8l3.85-1.15L12 3zM5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13zm13 1l.95 3.05L22 18l-3.05.95L18 22l-.95-3.05L14 18l3.05-.95L18 14z"/></svg>
+      <span>Ask VEDA</span>
     </button>
+    <button class="topbar-icon" id="notifications" type="button" title="Open review inbox"
+            aria-label="No items need review">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 00-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+      <span class="notification-count" id="notification-count" hidden>0</span>
+    </button>
+    <div class="account-shell" id="account-shell">
+      <button class="account-trigger" id="profile-toggle" type="button" aria-haspopup="menu"
+              aria-expanded="false" aria-controls="profile-menu">
+        <span class="account-avatar" aria-hidden="true">PC</span>
+        <span class="account-copy"><b>Project Controls</b><small>Local workspace</small></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+      </button>
+      <div class="account-menu" id="profile-menu" role="menu" hidden>
+        <div class="account-menu-head"><span class="account-avatar">PC</span><div><b>Project Controls</b><small>Planner workspace</small></div></div>
+        <button type="button" role="menuitem" data-profile-go="system"><span>System &amp; integrations</span><small>Providers, bridge and health</small></button>
+        <button type="button" role="menuitem" data-profile-go="anywhere"><span>Connected devices</span><small>VEDA Anywhere access</small></button>
+      </div>
+    </div>
     <!-- Reasoning-provider and Horizun/MCP health are diagnostics, not
          everyday project status - see System / MCP in the sidebar. -->
     <div class="chip" id="chip-agent" hidden><i class="dot"></i><span>agent</span></div>
@@ -44,8 +66,9 @@
   <main class="main" id="main"></main>
 </div>
 <div class="toasts" id="toasts"></div>
-<script src="/static/views.js?v=1.37"></script>
-<script src="/static/field-capture.js?v=1.37"></script>
-<script src="/static/app.js?v=1.37"></script>
+<script src="/static/views.js?v=1.57"></script>
+<script src="/static/vision-tracker.js?v=1.57"></script>
+<script src="/static/field-capture.js?v=1.57"></script>
+<script src="/static/app.js?v=1.57"></script>
 </body>
 </html>

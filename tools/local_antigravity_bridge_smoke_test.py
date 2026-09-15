@@ -34,12 +34,14 @@ def main() -> None:
         assert actual == project_id, (actual, project_id)
 
     with mock.patch.object(
-            bridge.config, "LOCAL_ANTIGRAVITY_CALLBACK_URL",
-            "http://127.0.0.1:8770"):
+            bridge, "_bridge_paths",
+            return_value=(Path("C:/veda/request.json"),
+                          Path("C:/veda/response.json"))):
         prompt = bridge._callback_prompt("inbox_test")
-    assert "GET http://127.0.0.1:8770/api/agent/inbox/item/inbox_test" in prompt
+    assert "C:\\veda\\request.json" in prompt
+    assert "C:\\veda\\response.json" in prompt
     assert '"inbox_id":"inbox_test"' in prompt
-    assert "Do not only reply" in prompt
+    assert "Do not fetch localhost URLs" in prompt
 
     with (mock.patch.object(bridge.config, "LOCAL_ANTIGRAVITY_FAST_MODEL",
                             "flash_lite"),
@@ -48,6 +50,27 @@ def main() -> None:
         assert bridge._reasoning_mode("analyse this schedule") == "deep"
         assert bridge._desktop_model("fast") == "flash_lite"
         assert bridge._desktop_model("deep") == "pro"
+
+    with tempfile.TemporaryDirectory(prefix="veda_local_ag_logs_") as raw:
+        temp = Path(raw)
+        logs = temp / "Antigravity" / "logs"
+        logs.mkdir(parents=True)
+        (logs / "main.log").write_text(
+            "Spawning: language_server.exe --csrf_token safe-test-token\n"
+            "Local:       https://127.0.0.1:55101/\n", encoding="utf-8")
+        (logs / "language_server.log").write_text(
+            "Language server listening on random port at 55101 for HTTPS (gRPC)\n"
+            "Language server listening on random port at 55102 for HTTP\n",
+            encoding="utf-8")
+        with (mock.patch.dict(bridge.os.environ, {"APPDATA": str(temp)}, clear=False),
+              mock.patch.object(bridge.Path, "home", return_value=temp),
+              mock.patch.object(bridge, "_standard_agentapi_executable",
+                                return_value="C:\\Antigravity\\language_server.exe")):
+            logged = bridge._logged_runtime_candidates()
+        assert logged[0] == {
+            "exe": "C:\\Antigravity\\language_server.exe",
+            "address": "127.0.0.1:55102", "token": "safe-test-token",
+        }, logged
 
     print("local Antigravity desktop bridge smoke test: PASS")
 

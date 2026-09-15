@@ -621,6 +621,62 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_conflict_key
 CREATE INDEX IF NOT EXISTS ix_conflict_project
   ON conflicts(project_id, status, activity_uid);
 
+-- Execution-control records stay separate from derived issues/risks. A
+-- hindrance is a dated condition that actually affected work, while readiness
+-- constraints are forward-looking checks for activities in the look-ahead.
+CREATE TABLE IF NOT EXISTS hindrances (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  ref TEXT,
+  title TEXT NOT NULL, description TEXT,
+  category TEXT, cause TEXT, responsibility TEXT, owner TEXT,
+  status TEXT DEFAULT 'open', severity TEXT DEFAULT 'medium',
+  started_on TEXT, reported_on TEXT, cleared_on TEXT,
+  schedule_impact_days REAL, impact_basis TEXT,
+  activity_uids_json TEXT, evidence_ids_json TEXT, context_json TEXT,
+  provenance TEXT DEFAULT 'HUMAN_INPUT', created_by TEXT,
+  created_at REAL, updated_at REAL
+);
+CREATE INDEX IF NOT EXISTS ix_hindrance_project
+  ON hindrances(project_id, status, started_on DESC);
+
+CREATE TABLE IF NOT EXISTS readiness_constraints (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  activity_uid INTEGER NOT NULL,
+  constraint_type TEXT NOT NULL,
+  description TEXT NOT NULL,
+  owner TEXT, required_by TEXT,
+  status TEXT DEFAULT 'open', criticality TEXT DEFAULT 'blocker',
+  evidence_ids_json TEXT, source_hindrance_id TEXT,
+  provenance TEXT DEFAULT 'HUMAN_INPUT', created_by TEXT,
+  resolved_by TEXT, resolved_at REAL,
+  created_at REAL, updated_at REAL
+);
+CREATE INDEX IF NOT EXISTS ix_readiness_project
+  ON readiness_constraints(project_id, status, activity_uid, required_by);
+
+-- BIM/model identifiers are optional identity evidence. They can be attached to
+-- an existing activity or held against a governed create-task proposal until
+-- that proposal has been independently verified.
+CREATE TABLE IF NOT EXISTS bim_identifiers (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  activity_uid INTEGER,
+  proposal_id TEXT,
+  identifier_type TEXT DEFAULT 'IFC_GUID',
+  identifier_value TEXT NOT NULL,
+  model_name TEXT, element_type TEXT, location TEXT,
+  source_file TEXT, evidence_id TEXT,
+  status TEXT DEFAULT 'confirmed',
+  provenance TEXT DEFAULT 'HUMAN_INPUT', created_by TEXT,
+  created_at REAL, updated_at REAL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_bim_identifier
+  ON bim_identifiers(project_id, identifier_type, identifier_value, COALESCE(model_name,''));
+CREATE INDEX IF NOT EXISTS ix_bim_activity
+  ON bim_identifiers(project_id, activity_uid, status);
+
 -- One versioned proof contract is supplied in this release: pipeline welding
 -- execution evidenced by DPR + welding + NDT/NCR registers.
 CREATE TABLE IF NOT EXISTS execution_contracts (

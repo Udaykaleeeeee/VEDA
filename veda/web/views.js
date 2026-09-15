@@ -7,7 +7,7 @@ const A = (p) => window.api(p);
 const P = (p, b) => window.post(p, b);
 
 /* ------------------------------------------------------------ helpers */
-const day = (v) => v ? String(v).split('T')[0] : '—';
+const day = (v) => v ? String(v).split(/[T ]/)[0] : '—';
 const num = (v, d) => (v === null || v === undefined || v === '')
   ? '—' : Number(v).toFixed(d === undefined ? 1 : d);
 const int = (v) => (v === null || v === undefined || v === '')
@@ -58,6 +58,77 @@ function bar(pct, cls) {
   return '<div class="bar ' + (cls || '') + '"><i style="width:' + p + '%"></i></div>';
 }
 
+function completionTrajectoryCard(data) {
+  data = data || {};
+  const series = data.series || [];
+  if (!data.available || !series.length) {
+    return '<section class="control-visual-card"><header><div><small>Schedule × field truth</small>' +
+      '<h3>Completion trajectory</h3></div>' + prov('DETERMINISTIC_CALCULATION') +
+      '</header>' + empty('Not evaluable', 'Finish dates are not available yet.') + '</section>';
+  }
+  const W = 760, H = 220, left = 38, right = 12, top = 18, bottom = 36;
+  const x = i => left + i * (W - left - right) / Math.max(1, series.length - 1);
+  const y = value => top + (100 - Math.max(0, Math.min(100, Number(value)))) *
+    (H - top - bottom) / 100;
+  const path = key => {
+    let open = false, value = '';
+    series.forEach((point, i) => {
+      if (point[key] === null || point[key] === undefined) { open = false; return; }
+      value += (open ? 'L' : 'M') + x(i) + ' ' + y(point[key]) + ' ';
+      open = true;
+    });
+    return value.trim();
+  };
+  const labelEvery = Math.max(1, Math.ceil(series.length / 6));
+  const labels = series.map((point, i) =>
+    (i % labelEvery === 0 || i === series.length - 1)
+      ? '<text class="axis" x="' + x(i) + '" y="' + (H - 8) +
+        '" text-anchor="middle">' + E(String(point.period).slice(0, 7)) + '</text>' : '').join('');
+  const dots = (key, cls) => series.map((point, i) =>
+    point[key] === null || point[key] === undefined ? '' :
+      '<rect class="' + cls + '" x="' + (x(i) - 2.5) + '" y="' +
+      (y(point[key]) - 2.5) + '" width="5" height="5"><title>' +
+      E(String(point.period).slice(0, 7)) + ' · ' + num(point[key], 1) + '%</title></rect>').join('');
+  return '<section class="control-visual-card trajectory-card"><header><div><small>Schedule × field truth</small>' +
+    '<h3>Completion trajectory</h3></div>' + prov('DETERMINISTIC_CALCULATION') + '</header>' +
+    '<div class="control-chart-wrap"><svg class="control-trajectory" viewBox="0 0 ' + W + ' ' + H +
+      '" preserveAspectRatio="none">' +
+      [0, 25, 50, 75, 100].map(value => '<line class="grid-l" x1="' + left + '" x2="' +
+        (W - right) + '" y1="' + y(value) + '" y2="' + y(value) + '"/><text class="axis y" x="' +
+        (left - 7) + '" y="' + (y(value) + 3) + '" text-anchor="end">' + value + '%</text>').join('') +
+      '<path class="trajectory-reference" d="' + path('reference') + '"/>' +
+      '<path class="trajectory-recorded" d="' + path('recorded') + '"/>' +
+      '<path class="trajectory-field" d="' + path('field_verified') + '"/>' +
+      dots('reference', 'trajectory-reference-dot') + dots('recorded', 'trajectory-recorded-dot') +
+      dots('field_verified', 'trajectory-field-dot') + labels + '</svg></div>' +
+    '<div class="trajectory-legend"><span class="reference"><i></i>' + E(data.reference_label || 'Reference') +
+      ' <b>' + int(data.reference_coverage || 0) + '/' + int(data.denominator || 0) + '</b></span>' +
+      '<span class="recorded"><i></i>Recorded actual finishes <b>' + int(data.recorded_finish_coverage || 0) +
+      '</b></span><span class="field"><i></i>Field-verified finishes <b>' +
+      int(data.verified_finish_coverage || 0) + '</b></span></div>' +
+    '<footer>' + E(data.definition || '') + '</footer></section>';
+}
+
+function activityDistributionCard(data) {
+  data = data || {};
+  const total = Number(data.total || 0);
+  const counts = data.counts || {};
+  const rows = [
+    ['completed', 'Completed', 'good'], ['in_progress', 'In progress', 'warm'],
+    ['not_started', 'Not started', 'muted'], ['not_evaluable', 'Not evaluable', 'unknown']
+  ].filter(row => Number(counts[row[0]] || 0) || row[0] !== 'not_evaluable');
+  return '<section class="control-visual-card distribution-card"><header><div><small>Source schedule</small>' +
+    '<h3>Activity distribution</h3></div>' + prov('MCP_FACT') + '</header>' +
+    (data.available ? '<div class="distribution-body">' + rows.map(row => {
+      const count = Number(counts[row[0]] || 0);
+      const pct = total ? count * 100 / total : 0;
+      return '<div class="distribution-row ' + row[2] + '"><div><span>' + row[1] + '</span><b>' +
+        int(count) + ' <small>' + num(pct, 0) + '%</small></b></div><div class="distribution-track"><i style="width:' +
+        Math.max(0, Math.min(100, pct)) + '%"></i></div></div>';
+    }).join('') + '</div><footer>' + E(data.basis || '') + ' · ' + int(total) + ' source activities</footer>' :
+      empty('Not evaluable', 'No leaf activities are available.')) + '</section>';
+}
+
 function sev(s) {
   return '<span class="sev-' + E(String(s || 'low').toLowerCase()) + '">' +
     E(s || '—') + '</span>';
@@ -74,7 +145,9 @@ const ST = { complete: 'green', in_progress: 'blue', not_started: 'grey',
   pass: 'green', fail: 'red', not_evaluated: 'grey', high: 'red',
   critical: 'red', medium: 'amber', low: 'grey', approved: 'green',
   pending: 'amber', verified: 'green', failed: 'red', done: 'green',
-  running: 'blue', queued: 'grey', awaiting_review: 'amber', partial: 'amber' };
+  running: 'blue', queued: 'grey', awaiting_review: 'amber', partial: 'amber',
+  monitoring: 'blue', cleared: 'green', waived: 'violet', ready: 'green',
+  blocked: 'red', attention: 'amber', not_assessed: 'grey', proposed: 'violet' };
 
 /* ===================================================== no project */
 VIEWS.noproject = () =>
@@ -131,15 +204,52 @@ VIEWS.capture = async (pid) => {
       '<div class="capture-section capture-source-section"><div class="capture-step"><span>1</span><div><b>Tell VEDA what happened</b>' +
       '<small>Speak naturally or type a note. VEDA turns it into an editable event card.</small></div></div>' +
       '<div class="capture-action-grid"><button class="capture-action voice" id="capture-voice" type="button"><i>●</i><b>Record voice</b><small>Audio is kept as evidence</small></button>' +
-      '<button class="capture-action photo" id="capture-photo" type="button"><i>▣</i><b>Take photos</b><small>Use camera or gallery</small></button></div>' +
+      '<button class="capture-action cctv" id="capture-cctv" type="button" aria-expanded="false" aria-controls="capture-cctv-panel"><i>▶</i><b>Review CCTV</b><small>Inspect footage and draft progress</small></button></div>' +
+      '<section class="cctv-workstation" id="capture-cctv-panel" hidden aria-label="CCTV progress review workstation">' +
+        '<header class="cctv-head"><div><span class="cctv-kicker"><i></i> LOCAL CAMERA · DEMO REVIEW</span>' +
+        '<h3>Site Vision Review</h3><p>Pause, rewind, jump to an observation, then verify the AI draft before it becomes field evidence.</p></div>' +
+        '<button class="cctv-close" id="capture-cctv-close" type="button" aria-label="Close CCTV review">×</button></header>' +
+        '<div class="cctv-grid"><div class="cctv-feed-column"><div class="cctv-feed">' +
+          '<video id="capture-cctv-player" title="Local site camera footage" src="/static/staticcams/CCTV_2.mp4" controls muted playsinline preload="metadata"></video>' +
+          '<div class="site-vision-box-layer" id="capture-cctv-boxes" aria-hidden="true"><i class="vision-scan-line"></i></div>' +
+          '<div class="cctv-feed-meta"><span><i></i> AI TRACKING</span><b id="capture-cctv-camera-label">Pipe laydown yard · CAM-03</b><time id="capture-cctv-clock">Frame 00:53</time></div>' +
+        '</div><div class="cctv-feed-toolbar"><label><span>Demo camera</span><select class="inp" id="capture-cctv-camera">' +
+          '<option value="yard">Pipe laydown yard · CAM-03</option>' +
+          '<option value="drilling">Drilling operations · CAM-01</option>' +
+        '</select></label><div class="vision-mode-switch" id="capture-cctv-mode"><button class="selected" type="button" data-capture-cctv-mode="ai">AI scan</button>' +
+        '<button type="button" data-capture-cctv-mode="raw">Raw CCTV</button></div>' +
+        '<a class="btn sm" id="capture-cctv-download" href="/static/staticcams/CCTV_2.mp4" download>Download clip</a></div>' +
+        '<div class="cctv-observation-rail" aria-label="Detected observations">' +
+          '<button type="button" data-cctv-observation="inventory"><time>00:05</time><span><b>Pipe stock visible</b><small>Material context · no progress claim</small></span><i>96%</i></button>' +
+          '<button class="selected" type="button" data-cctv-observation="handling"><time>00:53</time><span><b>Stringing preparation</b><small>PIP-SP1-2002 · 41% estimate</small></span><i>91%</i></button>' +
+          '<button type="button" data-cctv-observation="workfront"><time>01:35</time><span><b>Active laydown workfront</b><small>Worker + pipe context</small></span><i>86%</i></button>' +
+        '</div></div>' +
+        '<aside class="cctv-review-card"><div class="cctv-review-title"><div><span>AI observation draft</span><b id="capture-cctv-time">Frame 00:53</b></div><em>HUMAN REVIEW REQUIRED</em></div>' +
+          '<label><span>Schedule activity ID</span><input class="inp" id="capture-cctv-activity-id" value="PIP-SP1-2002"></label>' +
+          '<label><span>Observed work</span><input class="inp" id="capture-cctv-activity-name" value="Stringing 16&quot; API 5L Gr X52"></label>' +
+          '<div class="cctv-review-fields"><label><span>Supervisor progress draft</span><div class="cctv-percent"><input class="inp" id="capture-cctv-progress" type="number" min="0" max="100" step="1" value="41"><b>%</b></div></label>' +
+          '<label><span>Object detector</span><output id="capture-cctv-confidence">Loading local tracks…</output></label></div>' +
+          '<label><span>Reviewer note</span><textarea class="inp" id="capture-cctv-note" rows="3">Pipe stock and an active handling workfront are visible; verify chainage and installed quantity.</textarea></label>' +
+          '<div class="cctv-review-actions"><button class="btn" id="capture-cctv-jump" type="button">Jump to frame</button>' +
+          '<button class="btn primary" id="capture-cctv-use" type="button">Review &amp; save field data</button></div>' +
+          '<button class="cctv-attach" id="capture-cctv-photo" type="button">Attach a site image instead</button>' +
+          '<p><b>Vision disclosure:</b> moving worker boxes use local pose detection and road vehicles use local object detection. Camera-calibrated labels and safety signals remain review candidates. The model does not detect pipe completion or measure progress. Saving creates an editable, auditable field draft only.</p>' +
+        '</aside></div>' +
+      '</section>' +
       '<input type="file" id="capture-photo-file" accept="image/*" capture="environment" multiple hidden>' +
       '<input type="file" id="capture-audio-file" accept="audio/*" capture hidden>' +
       '<div id="capture-media-tray" class="capture-media-tray"></div>' +
+      '<div class="capture-mic-row"><label><span>Microphone input</span>' +
+      '<select class="inp" id="capture-microphone" aria-label="Microphone input"><option value="">Default microphone</option></select></label>' +
+      '<button class="btn sm" id="capture-mic-refresh" type="button">Find microphones</button>' +
+      '<small id="capture-mic-status">Allow microphone access to list available inputs.</small></div>' +
       '<div class="capture-fields-two capture-language-row"><label><span>Language</span><select class="inp" id="capture-language">' +
       '<option value="en">English</option><option value="hi-IN">हिन्दी / Hinglish</option>' +
       '<option value="ar">العربية</option><option value="es">Español</option>' +
       '<option value="fr">Français</option><option value="ur">اردو</option></select></label>' +
       '<div class="capture-transcript-state" id="capture-transcript-state"><i></i><span>Waiting for an observation</span></div></div>' +
+      '<div class="capture-language-help"><i>↳</i><div><b>Adaptive language understanding</b>' +
+      '<span>Common site phrases stay instant. If the corrected wording is unfamiliar, VEDA asks only the local reasoning service for a structured draft—never Claude or Codex—and you still edit every field.</span></div></div>' +
       '<label class="capture-wide-label"><span>Raw note / draft voice transcript <em>kept as source evidence</em></span>' +
       '<textarea class="inp" id="capture-original" rows="4" placeholder="Describe the work, exact area, quantities, blockers, and what you personally observed."></textarea></label>' +
       '<div class="capture-transcript-source" id="capture-transcript-source">Type a note, or record voice for a browser draft transcript.</div>' +
@@ -189,11 +299,78 @@ VIEWS.bind_capture = (pid) => {
   if (window.FieldCapture) window.FieldCapture.bind(pid);
 };
 
+function siteVisionDashboard() {
+  return '<section class="site-vision-panel" id="site-vision-panel">' +
+    '<header class="site-vision-head"><div><div class="eyebrow">Visual execution evidence</div>' +
+    '<h2>Site Vision</h2><p>Review fixed cameras and worker uploads without leaving the project controls workspace.</p></div>' +
+    '<div class="site-vision-head-actions"><span><i></i> LOCAL MEDIA</span>' +
+    '<button class="btn sm" type="button" onclick="go(\'capture\')">Open Field Capture</button></div></header>' +
+    '<nav class="site-vision-tabs" aria-label="Site Vision sources">' +
+      '<button class="selected" type="button" data-site-vision-tab="cameras"><b>Fixed cameras</b><small>2 available</small></button>' +
+      '<button type="button" data-site-vision-tab="uploads"><b>Worker uploads</b><small>1 video</small></button>' +
+    '</nav>' +
+
+    '<div class="site-vision-pane" data-site-vision-pane="cameras">' +
+      '<div class="site-vision-grid"><div class="site-vision-stage"><div class="site-vision-video-shell">' +
+        '<video id="site-camera-video" src="/static/staticcams/CCTV_2.mp4" controls muted playsinline preload="metadata"></video>' +
+        '<div class="site-vision-box-layer" id="site-camera-boxes" aria-hidden="true"><i class="vision-scan-line"></i>' +
+        '</div><div class="site-camera-hud"><span><i></i> AI TRACKING</span><b id="site-camera-hud-label">Pipe laydown yard · CAM-03</b>' +
+        '<time id="site-camera-time">Frame 00:53</time></div>' +
+      '</div><div class="site-vision-playerbar"><div class="vision-mode-switch" id="site-camera-mode">' +
+        '<button class="selected" type="button" data-site-vision-mode="ai">AI scanning</button>' +
+        '<button type="button" data-site-vision-mode="raw">Raw CCTV</button></div>' +
+        '<span>Boxes are a review aid; schedule progress still needs human confirmation.</span></div></div>' +
+      '<aside class="site-vision-inspector"><label class="site-vision-label"><span>Camera</span>' +
+        '<select class="inp" id="site-camera-select"><option value="yard">Pipe laydown yard · CAM-03</option>' +
+        '<option value="drilling">Drilling operations · CAM-01</option></select></label>' +
+        '<div class="site-vision-signal"><span><i></i> CAMERA ONLINE</span><b id="site-camera-detected">Loading tracks…</b><small id="site-camera-model-state">Local playback · loading vision ensemble</small></div>' +
+        '<div class="site-vision-detections" id="site-camera-detections"><div class="vision-detection-empty">Loading time-synchronised model tracks…</div>' +
+        '</div><section class="site-safety-watch" id="site-safety-watch" hidden>' +
+          '<header><span><i></i> SAFETY REVIEW</span><b id="site-safety-severity">HIGH</b></header>' +
+          '<h3 id="site-safety-title">Potential struck-by / near-miss</h3>' +
+          '<p id="site-safety-summary">Rapid worker posture change detected during material handling. Supervisor confirmation is required.</p>' +
+          '<div><time id="site-safety-time">00:08</time><small id="site-safety-state">Assistive alert · not a confirmed incident</small></div>' +
+          '<footer><button class="btn sm" id="site-safety-review" type="button">Review moment</button>' +
+          '<button class="btn sm" id="site-safety-ack" type="button">Acknowledge</button></footer>' +
+        '</section><div class="site-vision-candidate"><span>Schedule candidate</span>' +
+          '<b id="site-camera-activity">PIP-SP1-2002 · Stringing 16&quot; API 5L Gr X52</b>' +
+          '<div><strong id="site-camera-progress">41%</strong><small>visual draft · not an official actual</small></div>' +
+          '<p id="site-camera-summary">Pipe stock and an active handling workfront are visible. Confirm chainage and installed quantity before accepting progress.</p></div>' +
+        '<div class="site-vision-inspector-actions"><a class="btn sm" id="site-camera-download" href="/static/staticcams/CCTV_2.mp4" download>Download clip</a>' +
+        '<button class="btn primary sm" id="site-camera-field-draft" type="button">Review field draft</button></div>' +
+        '<p class="site-vision-disclosure">Worker tracks use local pose detection; road vehicles use local object detection. CAM-03 hook labels are camera-calibrated review candidates because COCO has no crane-hook class. Safety alerts use multi-frame posture change and are not confirmed incidents. Nothing writes to P6 automatically.</p>' +
+      '</aside></div></div>' +
+
+    '<div class="site-vision-pane" data-site-vision-pane="uploads" hidden>' +
+      '<div class="site-vision-grid"><div class="site-vision-stage"><div class="site-vision-video-shell worker-upload-video">' +
+        '<video id="site-worker-video" src="/static/staticcams/LiveCamera_1.mp4" controls playsinline preload="metadata"></video>' +
+        '<div class="site-vision-box-layer" id="site-worker-boxes" hidden aria-hidden="true"><i class="vision-scan-line"></i>' +
+        '</div><div class="site-camera-hud upload"><span><i></i> WORKER UPLOAD</span><b>Field walk-through · Duliajan</b><time>06:24</time></div>' +
+      '</div><div class="site-vision-playerbar"><span>Uploaded by R. Dutta · Piping crew · Today 06:42</span>' +
+        '<div><a class="link" href="/static/staticcams/LiveCamera_1.mp4" download>Download</a>' +
+        '<button class="link" id="site-worker-share" type="button">Share</button></div></div></div>' +
+      '<aside class="site-vision-inspector worker"><div class="worker-upload-state"><span><i></i> READY FOR SUPERVISOR REVIEW</span><small>Stored locally · original retained</small></div>' +
+        '<label class="site-vision-label"><span>Headline</span><input class="inp" id="site-worker-title" value="Duliajan pipe-rack workfront walk-through"></label>' +
+        '<label class="site-vision-label"><span>Worker description</span><textarea class="inp" id="site-worker-description" rows="3">Civil and pipe-rack workfront filmed during the morning walk. Workers and structural bays are visible.</textarea></label>' +
+        '<label class="site-vision-label"><span>Supervisor observation</span><textarea class="inp" id="site-worker-note" rows="3" placeholder="Example: Pipe-rack steel erection at Duliajan reached 72%; two support bays remain.">Pipe-rack steel erection at Duliajan reached approximately 72%; two support bays and alignment checks remain.</textarea></label>' +
+        '<div class="worker-review-actions"><button class="btn" id="site-worker-use-note" type="button">Use supervisor note</button>' +
+        '<button class="btn primary" id="site-worker-scan" type="button">Let AI scan</button></div>' +
+        '<div class="worker-scan-result" id="site-worker-result" hidden><header><span>VIDEO REVIEW DRAFT</span><b id="site-worker-result-state">Scan complete</b></header>' +
+          '<h3 id="site-worker-result-title">Active pipe-rack workfront</h3>' +
+          '<p id="site-worker-result-summary">Workers and structural bays are visible. The description supports a piping-erection progress event, subject to supervisor confirmation.</p>' +
+          '<div><span><b>PIP-DUL-2016</b><small>Piping Erection on Rack - Duliajan</small></span><strong id="site-worker-result-progress">72%</strong></div>' +
+          '<button class="btn primary" id="site-worker-field-draft" type="button">Review schedule update</button></div>' +
+        '<p class="site-vision-disclosure">The scan combines local people/vehicle tracks with the worker headline and description. It does not infer installed pipe quantity or schedule progress.</p>' +
+      '</aside></div></div>' +
+  '</section>';
+}
+
 /* ===================================================== 1. overview */
 VIEWS.overview = async (pid) => {
   const o = await A('/projects/' + pid + '/overview');
   const s = o.schedule, ev = o.earned_value, c = o.counts;
   const f = o.field_context || {};
+  const insights = o.control_insights || {};
   if (!s) {
     return '<div class="head"><h1>' + E(o.project.name) + '</h1></div>' +
       panel('Project overview', '<div class="body">' +
@@ -252,8 +429,11 @@ VIEWS.overview = async (pid) => {
   if (Number(c.open_issues || 0) + Number(c.open_risks || 0)) interventions.push('<button onclick="go(\'issues\')"><b>' +
     int(Number(c.open_issues || 0) + Number(c.open_risks || 0)) +
     ' open issue/risk records</b><span>Review execution conditions that may need intervention</span><i>Investigate →</i></button>');
+  if (Number(c.open_hindrances || 0) + Number(c.open_constraints || 0)) interventions.push('<button onclick="go(\'controls\')"><b>' +
+    int(Number(c.open_hindrances || 0) + Number(c.open_constraints || 0)) +
+    ' execution control flags</b><span>Review active hindrances and look-ahead readiness constraints</span><i>Open controls →</i></button>');
 
-  return '<div class="head"><div><div class="eyebrow">Control room</div>' +
+  return '<div class="head"><div><div class="eyebrow">Dashboard</div>' +
     '<h1>' + E(o.project.name) + '</h1>' +
     '<div class="sub">Authoritative schedule: ' + E(s.project_name || '') +
     (o.project.location ? ' · ' + E(o.project.location) : '') +
@@ -279,6 +459,13 @@ VIEWS.overview = async (pid) => {
       '<div class="intervention-list">' + (interventions.length ? interventions.join('') :
         '<div class="control-clear"><b>Project inputs are reconciled.</b><span>New evidence will appear here when it creates an exception.</span></div>') +
       '</div></section>' +
+
+    '<div class="control-visual-grid">' +
+      completionTrajectoryCard(insights.completion_trajectory) +
+      activityDistributionCard(insights.activity_distribution) +
+    '</div>' +
+
+    siteVisionDashboard() +
 
     '<div class="grid g4" style="margin-bottom:14px">' +
     stat('Current forecast finish', forecastValue, E(forecastDetail),
@@ -411,6 +598,313 @@ VIEWS.overview = async (pid) => {
       '</div>') : '');
 };
 
+VIEWS.bind_overview = (pid) => {
+  const root = document.getElementById('site-vision-panel');
+  if (!root) return;
+  VIEWS._siteVisionBusy = false;
+  root.addEventListener('pointerdown', () => { VIEWS._siteVisionBusy = true; });
+  root.addEventListener('input', () => { VIEWS._siteVisionBusy = true; });
+  const feeds = {
+    yard: {
+      src: '/static/staticcams/CCTV_2.mp4', label: 'Pipe laydown yard · CAM-03', at: 6,
+      tracks: '/static/staticcams/detections/CCTV_2.json',
+      activityId: 'PIP-SP1-2002', activityName: 'Stringing 16" API 5L Gr X52', progress: 41,
+      summary: 'Pipe stock and an active handling workfront are visible. Confirm chainage and installed quantity before accepting progress.',
+    },
+    drilling: {
+      src: '/static/staticcams/CCTV_1.mp4', label: 'Drilling operations · CAM-01', at: 151,
+      tracks: '/static/staticcams/detections/CCTV_1.json',
+      activityId: 'CIV-DUL-1005', activityName: 'Pump Foundation Piling', progress: 54,
+      summary: 'A rotary drilling workfront and field crew are visible. Confirm pile number, bore depth and accepted quantity before accepting progress.',
+    },
+  };
+  let activeFeed = 'yard';
+  let workerMode = 'scan';
+  let cameraTracker = null;
+  let cameraAiEnabled = true;
+  let latestCameraDetections = [];
+  let cameraModelState = 'Local playback · loading vision ensemble';
+  let currentSafetyEvent = null;
+  const warnedEvents = new Set();
+  const cameraVideo = root.querySelector('#site-camera-video');
+  const cameraBoxes = root.querySelector('#site-camera-boxes');
+
+  const timeLabel = seconds => {
+    const whole = Math.max(0, Math.round(Number(seconds) || 0));
+    return String(Math.floor(whole / 60)).padStart(2, '0') + ':' +
+      String(whole % 60).padStart(2, '0');
+  };
+  const detectionMarkup = detections => {
+    if (!detections.length) return '<div class="vision-detection-empty">No supported object detected at this frame</div>';
+    const detail = item => {
+      if (item.basis === 'pose') return 'Pose-backed worker · ' +
+        int(item.visible_keypoints || 0) + ' visible joints · ' +
+        Math.round(item.confidence * 100) + '% confidence';
+      if (item.basis === 'camera_calibrated_lifting_corridor')
+        return 'Calibrated lifting corridor · supervisor review required';
+      if (item.basis === 'fixed_camera_scene_memory') return 'Fixed-camera scene memory · ' +
+        int(item.supporting_observations || 0) + ' repeated confirmations';
+      return 'Local object track · ' + Math.round(item.confidence * 100) + '% confidence';
+    };
+    return detections.slice().sort((a, b) =>
+      (a.class === 'suspended-load' ? -2 : a.class === 'worker' ? -1 : 0) -
+      (b.class === 'suspended-load' ? -2 : b.class === 'worker' ? -1 : 0) ||
+      b.confidence - a.confidence)
+      .slice(0, 6).map(item => '<div class="' + (item.review_required ? 'needs-review' : '') +
+        '"><i class="' + E(item.class || 'equipment') + '"></i><span><b>' +
+        E(item.label || 'Object') + ' #' + E(item.id) + '</b><small>' +
+        E(detail(item)) + '</small></span></div>').join('');
+  };
+
+  const renderSafetyWatch = events => {
+    const card = root.querySelector('#site-safety-watch');
+    currentSafetyEvent = (events || []).find(item => item.severity === 'high') ||
+      (events || [])[0] || null;
+    card.hidden = !currentSafetyEvent;
+    if (!currentSafetyEvent) return;
+    const storageKey = 'veda-vision-alert-ack:' + pid + ':' + currentSafetyEvent.id;
+    const acknowledged = localStorage.getItem(storageKey) === '1';
+    root.querySelector('#site-safety-severity').textContent = acknowledged ? 'ACKNOWLEDGED' :
+      String(currentSafetyEvent.severity || 'review').toUpperCase();
+    root.querySelector('#site-safety-title').textContent = currentSafetyEvent.label ||
+      'Safety review candidate';
+    root.querySelector('#site-safety-summary').textContent =
+      (currentSafetyEvent.signals || []).join('. ') + '.';
+    root.querySelector('#site-safety-time').textContent = timeLabel(currentSafetyEvent.t);
+    root.querySelector('#site-safety-state').textContent = acknowledged
+      ? 'Supervisor acknowledged · review record retained locally'
+      : (currentSafetyEvent.disclaimer || 'Assistive alert · supervisor confirmation required');
+    const acknowledge = root.querySelector('#site-safety-ack');
+    acknowledge.textContent = acknowledged ? 'Acknowledged' : 'Acknowledge';
+    acknowledge.disabled = acknowledged;
+    card.classList.toggle('acknowledged', acknowledged);
+  };
+
+  const seekWhenReady = (video, seconds) => {
+    const seek = () => {
+      if (Number.isFinite(video.duration) && video.duration > 0)
+        video.currentTime = Math.min(seconds, Math.max(0, video.duration - .25));
+    };
+    if (video.readyState >= 1) seek();
+    else video.addEventListener('loadedmetadata', seek, {once: true});
+  };
+  const applyCameraMode = mode => {
+    const ai = mode !== 'raw';
+    cameraAiEnabled = ai;
+    cameraBoxes.hidden = !ai;
+    if (cameraTracker) cameraTracker.setVisible(ai);
+    root.querySelectorAll('[data-site-vision-mode]').forEach(button =>
+      button.classList.toggle('selected', button.dataset.siteVisionMode === (ai ? 'ai' : 'raw')));
+    const hud = root.querySelector('.site-camera-hud > span');
+    if (hud) hud.innerHTML = ai ? '<i></i> AI TRACKING' : '<i></i> RAW CCTV';
+    const detected = root.querySelector('#site-camera-detected');
+    const modelState = root.querySelector('#site-camera-model-state');
+    const rail = root.querySelector('#site-camera-detections');
+    if (!ai) {
+      if (detected) detected.textContent = 'Overlay hidden';
+      if (modelState) modelState.textContent = 'Raw CCTV · model overlay paused';
+      if (rail) rail.innerHTML = '<div class="vision-detection-empty">AI overlay hidden in raw mode</div>';
+    } else {
+      if (detected) detected.textContent = latestCameraDetections.length +
+        (latestCameraDetections.length === 1 ? ' model track' : ' model tracks');
+      if (modelState) modelState.textContent = cameraModelState;
+      if (rail) rail.innerHTML = detectionMarkup(latestCameraDetections);
+    }
+  };
+  const bindCameraTracker = feed => {
+    if (cameraTracker) cameraTracker.destroy();
+    cameraBoxes.innerHTML = '<i class="vision-scan-line"></i>';
+    latestCameraDetections = [];
+    cameraModelState = 'Local playback · loading vision ensemble';
+    renderSafetyWatch([]);
+    root.querySelector('#site-camera-detected').textContent = 'Loading tracks…';
+    root.querySelector('#site-camera-model-state').textContent = 'Local playback · loading vision ensemble';
+    root.querySelector('#site-camera-detections').innerHTML =
+      '<div class="vision-detection-empty">Loading time-synchronised model tracks…</div>';
+    if (!window.VisionTracks) {
+      root.querySelector('#site-camera-model-state').textContent = 'Vision tracker unavailable';
+      return;
+    }
+    cameraTracker = window.VisionTracks.bind({video: cameraVideo, layer: cameraBoxes,
+      dataUrl: feed.tracks, visible: cameraAiEnabled,
+      onUpdate: (detections, payload, activeEvents) => {
+        latestCameraDetections = detections;
+        if (cameraAiEnabled) {
+          root.querySelector('#site-camera-detected').textContent = detections.length +
+            (detections.length === 1 ? ' model track' : ' model tracks');
+          root.querySelector('#site-camera-detections').innerHTML = detectionMarkup(detections);
+        }
+        if ((activeEvents || []).length) {
+          const alert = activeEvents[0];
+          if (!warnedEvents.has(alert.id)) {
+            warnedEvents.add(alert.id);
+            window.toast('Safety review at ' + timeLabel(alert.t) + ': ' + alert.label, 'bad');
+          }
+        }
+      },
+      onStatus: (status, payload) => {
+        cameraModelState = status === 'ready'
+          ? (payload.model.name + ' · ' + payload.sample_fps + ' sampled FPS · browser interpolation')
+          : 'Model track data could not be loaded';
+        if (cameraAiEnabled) root.querySelector('#site-camera-model-state').textContent = cameraModelState;
+        renderSafetyWatch(status === 'ready' ? payload.events || [] : []);
+      }});
+    cameraTracker.ready.catch(() => {});
+  };
+  const renderFeed = key => {
+    const feed = feeds[key] || feeds.yard;
+    activeFeed = key in feeds ? key : 'yard';
+    cameraVideo.pause();
+    cameraVideo.src = feed.src;
+    cameraVideo.load();
+    seekWhenReady(cameraVideo, feed.at);
+    root.querySelector('#site-camera-hud-label').textContent = feed.label;
+    root.querySelector('#site-camera-time').textContent = 'Frame ' + timeLabel(feed.at);
+    root.querySelector('#site-camera-activity').textContent = feed.activityId + ' · ' + feed.activityName;
+    root.querySelector('#site-camera-progress').textContent = feed.progress + '%';
+    root.querySelector('#site-camera-summary').textContent = feed.summary;
+    root.querySelector('#site-camera-download').href = feed.src;
+    bindCameraTracker(feed);
+    applyCameraMode('ai');
+  };
+  const queueCaptureDraft = draft => {
+    try {
+      localStorage.setItem('veda-visual-capture-draft', JSON.stringify({projectId: pid, ...draft}));
+      go('capture');
+    } catch (_) { window.toast('Could not prepare the field draft in this browser', 'bad'); }
+  };
+
+  root.querySelectorAll('[data-site-vision-tab]').forEach(button => button.onclick = () => {
+    const tab = button.dataset.siteVisionTab;
+    root.querySelectorAll('[data-site-vision-tab]').forEach(item =>
+      item.classList.toggle('selected', item === button));
+    root.querySelectorAll('[data-site-vision-pane]').forEach(pane =>
+      pane.hidden = pane.dataset.siteVisionPane !== tab);
+    if (tab === 'uploads') seekWhenReady(root.querySelector('#site-worker-video'), 192);
+  });
+  root.querySelector('#site-camera-select').onchange = event => renderFeed(event.target.value);
+  root.querySelectorAll('[data-site-vision-mode]').forEach(button =>
+    button.onclick = () => applyCameraMode(button.dataset.siteVisionMode));
+  cameraVideo.ontimeupdate = () => {
+    root.querySelector('#site-camera-time').textContent = 'Frame ' + timeLabel(cameraVideo.currentTime);
+  };
+  root.querySelector('#site-camera-field-draft').onclick = () => {
+    const feed = feeds[activeFeed];
+    queueCaptureDraft({source: 'Fixed camera review · ' + feed.label,
+      activityId: feed.activityId, activityName: feed.activityName, progress: feed.progress,
+      location: feed.label, mediaName: feed.src.split('/').pop(),
+      text: 'Fixed camera review (' + feed.label + ', frame ' + timeLabel(cameraVideo.currentTime) +
+        '): ' + feed.activityId + ' ' + feed.activityName + ' visual progress is estimated at ' +
+        feed.progress + '%. Work remains. ' + feed.summary + ' Human verification required.'});
+  };
+  root.querySelector('#site-safety-review').onclick = () => {
+    if (!currentSafetyEvent) return;
+    applyCameraMode('ai');
+    seekWhenReady(cameraVideo, Math.max(0, Number(currentSafetyEvent.t) - 1.5));
+    cameraVideo.play().catch(() => {});
+    root.querySelector('#site-safety-watch').classList.add('reviewing');
+  };
+  root.querySelector('#site-safety-ack').onclick = () => {
+    if (!currentSafetyEvent) return;
+    localStorage.setItem('veda-vision-alert-ack:' + pid + ':' + currentSafetyEvent.id, '1');
+    renderSafetyWatch([currentSafetyEvent]);
+    window.toast('Safety alert acknowledged. It remains available for review.', 'good');
+  };
+
+  const workerVideo = root.querySelector('#site-worker-video');
+  const workerBoxes = root.querySelector('#site-worker-boxes');
+  let workerTracker = null;
+  const title = root.querySelector('#site-worker-title');
+  const description = root.querySelector('#site-worker-description');
+  const note = root.querySelector('#site-worker-note');
+  const result = root.querySelector('#site-worker-result');
+  const storageKey = 'veda-worker-video-meta:' + pid;
+  try {
+    const stored = JSON.parse(localStorage.getItem(storageKey) || 'null');
+    if (stored) {
+      title.value = stored.title || title.value;
+      description.value = stored.description || description.value;
+      note.value = stored.note || note.value;
+    }
+  } catch (_) {}
+  const saveWorkerMeta = () => {
+    try { localStorage.setItem(storageKey, JSON.stringify({title: title.value,
+      description: description.value, note: note.value})); } catch (_) {}
+  };
+  [title, description, note].forEach(input => input.oninput = saveWorkerMeta);
+  const paintWorkerResult = (mode, visionPayload) => {
+    workerMode = mode;
+    const pctMatch = note.value.match(/\b(100(?:\.0+)?|\d{1,2}(?:\.\d+)?)\s*%/);
+    const progress = pctMatch ? Number(pctMatch[1]) : 72;
+    result.hidden = false;
+    workerBoxes.hidden = false;
+    root.querySelector('#site-worker-result-state').textContent = mode === 'note'
+      ? 'Supervisor-authored' : 'Local vision scan';
+    root.querySelector('#site-worker-result-title').textContent = title.value.trim() ||
+      'Worker-uploaded site observation';
+    root.querySelector('#site-worker-result-summary').textContent = mode === 'note'
+      ? (note.value.trim() || 'Add a supervisor observation before creating the field draft.')
+      : 'The local detector produced ' +
+        (((visionPayload || {}).class_samples || {}).Worker || 0) + ' person and ' +
+        ((((visionPayload || {}).class_samples || {}).Vehicle || 0) +
+          (((visionPayload || {}).class_samples || {}).Truck || 0) +
+          (((visionPayload || {}).class_samples || {}).Bus || 0)) +
+        ' vehicle detections across sampled frames. Reporter context: ' +
+        (description.value.trim() || 'No description supplied.') +
+        ' The model does not measure installed quantity; confirm the activity and progress before approval.';
+    root.querySelector('#site-worker-result-progress').textContent = progress + '%';
+    result.dataset.progress = String(progress);
+  };
+  root.querySelector('#site-worker-use-note').onclick = () => paintWorkerResult('note');
+  if (window.VisionTracks) {
+    workerTracker = window.VisionTracks.bind({video: workerVideo, layer: workerBoxes,
+      dataUrl: '/static/staticcams/detections/LiveCamera_1.json', visible: false});
+    workerTracker.ready.catch(() => {});
+  }
+  root.querySelector('#site-worker-scan').onclick = async event => {
+    const button = event.currentTarget;
+    button.disabled = true; button.textContent = 'Loading local model tracks…';
+    try {
+      if (!workerTracker) throw new Error('Vision tracker unavailable');
+      const payload = await workerTracker.ready;
+      workerTracker.setVisible(true);
+      seekWhenReady(workerVideo, Number(payload.highlight_time) || 192);
+      workerVideo.muted = true;
+      workerVideo.play().catch(() => {});
+      paintWorkerResult('scan', payload);
+      result.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    } catch (_) {
+      window.toast('Local model tracks could not be loaded', 'bad');
+    } finally {
+      button.disabled = false; button.textContent = 'Let AI scan';
+    }
+  };
+  root.querySelector('#site-worker-field-draft').onclick = () => {
+    const progress = Number(result.dataset.progress || 72);
+    const summary = root.querySelector('#site-worker-result-summary').textContent;
+    queueCaptureDraft({source: (workerMode === 'note' ? 'Supervisor observation' : 'Video review draft') +
+        ' · LiveCamera_1.mp4', activityId: 'PIP-DUL-2016',
+      activityName: 'Piping Erection on Rack - Duliajan', progress,
+      location: 'Duliajan terminal · pipe-rack workfront', mediaName: 'LiveCamera_1.mp4',
+      text: 'Worker video review (LiveCamera_1.mp4): ' +
+        (title.value.trim() || 'Duliajan field walk-through') + '. ' + summary +
+        ' PIP-DUL-2016 Piping Erection on Rack - Duliajan visual progress is estimated at ' +
+        progress + '%. Work remains. Human verification required.'});
+  };
+  root.querySelector('#site-worker-share').onclick = async () => {
+    const url = new URL('/static/staticcams/LiveCamera_1.mp4', location.origin).href;
+    try {
+      if (navigator.share) await navigator.share({title: title.value.trim() || 'VEDA site video',
+        text: description.value.trim(), url});
+      else { await navigator.clipboard.writeText(url); window.toast('Local video link copied', 'good'); }
+    } catch (error) {
+      if (!error || error.name !== 'AbortError') window.toast('This browser could not share the clip', 'bad');
+    }
+  };
+  renderFeed('yard');
+};
+VIEWS.hasActiveSiteVision = () => Boolean(VIEWS._siteVisionBusy);
+
 const row = (k, v) => '<dt>' + E(k) + '</dt><dd>' + v + '</dd>';
 
 /* ===================================================== 2. EPS */
@@ -434,6 +928,271 @@ const head = (title, sub, extra) =>
   '<div class="head"><div><div class="eyebrow">' + E(sub || '') + '</div>' +
   '<h1>' + E(title) + '</h1></div><div class="spacer"></div>' +
   (extra || '') + '</div>';
+
+/* ========================================= evidence-aware schedule timeline */
+function timelinePos(value, start, span) {
+  if (!value) return null;
+  const parsed = new Date(day(value) + 'T00:00:00Z').getTime();
+  const first = new Date(start + 'T00:00:00Z').getTime();
+  if (!Number.isFinite(parsed) || !Number.isFinite(first)) return null;
+  return Math.max(0, Math.min(100, (parsed - first) / span * 100));
+}
+
+function timelineBar(startValue, finishValue, rangeStart, rangeMs, cls, label) {
+  const left = timelinePos(startValue, rangeStart, rangeMs);
+  const right = timelinePos(finishValue, rangeStart, rangeMs);
+  if (left === null || right === null) return '';
+  const begin = Math.min(left, right), width = Math.max(.35, Math.abs(right - left));
+  return '<i class="tl-bar ' + cls + '" style="left:' + begin + '%;width:' + width +
+    '%"><span>' + E(label) + ' · ' + day(startValue) + ' → ' + day(finishValue) + '</span></i>';
+}
+
+function timelineMark(value, rangeStart, rangeMs, cls, label) {
+  const left = timelinePos(value, rangeStart, rangeMs);
+  if (left === null) return '';
+  return '<i class="tl-mark ' + cls + '" style="left:' + left + '%"><span>' +
+    E(label) + ' · ' + day(value) + '</span></i>';
+}
+
+VIEWS.timeline = async (pid, params) => {
+  params = params || {};
+  const query = new URLSearchParams({
+    window: params.window || '90', anchor: params.anchor || '', q: params.q || '',
+    wbs: params.wbs || '', critical: params.critical ? 'true' : 'false',
+    blockers: params.blockers ? 'true' : 'false', limit: 350,
+  });
+  const r = await A('/projects/' + pid + '/timeline?' + query);
+  const startMs = new Date(r.range_start + 'T00:00:00Z').getTime();
+  const finishMs = new Date(r.range_finish + 'T00:00:00Z').getTime();
+  const spanMs = Math.max(86400000, finishMs - startMs);
+  const spanDays = Math.max(1, Math.round(spanMs / 86400000));
+  const canvasWidth = Math.max(760, Math.min(5200, spanDays * (r.window === 'full' ? 7 : 10)));
+  const ticks = Array.from({length: 7}, (_, index) => {
+    const at = new Date(startMs + spanMs * index / 6);
+    return '<i style="left:' + (index * 100 / 6) + '%"><span>' +
+      E(at.toISOString().slice(0, 10)) + '</span></i>';
+  }).join('');
+  const anchor = timelinePos(r.anchor, r.range_start, spanMs);
+  const rows = (r.activities || []).map(a => {
+    const blockerCount = Number(a.constraint_count || 0) + Number(a.hindrance_count || 0);
+    const tracks = timelineBar(a.baseline_start, a.baseline_finish, r.range_start, spanMs,
+      'baseline', 'Baseline/reference') +
+      timelineBar(a.start, a.finish, r.range_start, spanMs, 'current', 'Current schedule') +
+      timelineBar(a.actual_start, a.actual_finish, r.range_start, spanMs, 'actual', 'Recorded actual') +
+      timelineMark(a.actual_start, r.range_start, spanMs, 'actual-start', 'Recorded actual start') +
+      timelineMark(a.actual_finish, r.range_start, spanMs, 'actual-finish', 'Recorded actual finish') +
+      timelineMark(a.verified_actual_start, r.range_start, spanMs, 'verified-start', 'Field-verified start') +
+      timelineMark(a.verified_actual_finish, r.range_start, spanMs, 'verified-finish', 'Field-verified finish');
+    return '<div class="timeline-row"><button class="timeline-label" onclick="go(\'activity\',{id:' +
+      a.uid + '})"><small>' + E(a.display_id || ('UID ' + a.uid)) + ' · ' + E(a.wbs || '') +
+      '</small><b>' + E(a.name) + '</b><span>' + tagFor(a.status, ST) +
+      (a.critical ? '<em class="tag red">CP</em>' : '') +
+      (a.evidence_count ? '<em class="tag blue">' + int(a.evidence_count) + ' evidence</em>' : '') +
+      (blockerCount ? '<em class="tag amber">' + int(blockerCount) + ' control flags</em>' : '') +
+      (a.bim_identifier_count ? '<em class="tag violet">BIM ' + int(a.bim_identifier_count) + '</em>' : '') +
+      '</span></button><div class="timeline-track">' + ticks.replaceAll('<span>', '<span hidden>') +
+      (anchor === null ? '' : '<i class="tl-data-date" style="left:' + anchor + '%"><span>Data/status date ' +
+        E(r.anchor) + '</span></i>') + tracks + '</div></div>';
+  }).join('');
+  const legend = '<div class="timeline-legend"><span class="baseline"><i></i>Baseline/reference</span>' +
+    '<span class="current"><i></i>Current schedule</span><span class="actual"><i></i>Recorded actual</span>' +
+    '<span class="verified"><i></i>Field-verified event</span><span class="data-date"><i></i>Data/status date</span></div>';
+  return head('Schedule Timeline', 'Baseline × current plan × verified execution',
+    '<button class="btn sm" onclick="go(\'controls\')">Execution Control</button>') +
+    '<div class="timeline-toolbar"><input class="inp" id="tl-query" placeholder="Search activity, ID or WBS" value="' +
+      E(params.q || '') + '"><input class="inp" id="tl-wbs" placeholder="WBS prefix" value="' + E(params.wbs || '') + '">' +
+      '<select class="inp" id="tl-window"><option value="14">2 weeks</option><option value="42">6 weeks</option>' +
+      '<option value="90">90 days</option><option value="180">180 days</option><option value="full">Full schedule</option></select>' +
+      '<button class="btn sm' + (params.critical ? ' primary' : '') + '" id="tl-critical">Critical only</button>' +
+      '<button class="btn sm' + (params.blockers ? ' primary' : '') + '" id="tl-blockers">With control flags</button>' +
+      '<button class="btn sm" id="tl-reset">Reset</button><span class="spacer"></span><span class="mono">' +
+      int(r.returned) + ' activities · ' + E(r.range_start) + ' → ' + E(r.range_finish) + '</span></div>' +
+    legend + '<section class="timeline-viewport"><div class="timeline-canvas" style="--timeline-width:' +
+      canvasWidth + 'px"><div class="timeline-axis-row"><div class="timeline-axis-label">Activity</div>' +
+      '<div class="timeline-axis">' + ticks + '</div></div>' +
+      (rows || empty('No activities in this window', 'Change the range or filters.')) + '</div></section>' +
+    (r.limited ? '<div class="note warn">The view is capped at 350 activities. Narrow the WBS or search to inspect a dense schedule safely.</div>' : '') +
+    '<div class="note">Bars and markers preserve their source meaning. A field-verified event does not silently replace the recorded schedule actual.</div>';
+};
+
+VIEWS.bind_timeline = (pid, params) => {
+  const set = patch => go('timeline', Object.assign({}, params, patch));
+  const windowSelect = document.getElementById('tl-window');
+  if (windowSelect) { windowSelect.value = params.window || '90'; windowSelect.onchange = () => set({window: windowSelect.value}); }
+  const q = document.getElementById('tl-query');
+  const wbs = document.getElementById('tl-wbs');
+  const apply = () => set({q: q ? q.value : '', wbs: wbs ? wbs.value : ''});
+  if (q) q.onkeydown = e => { if (e.key === 'Enter') apply(); };
+  if (wbs) wbs.onkeydown = e => { if (e.key === 'Enter') apply(); };
+  const critical = document.getElementById('tl-critical');
+  if (critical) critical.onclick = () => set({critical: params.critical ? '' : '1'});
+  const blockers = document.getElementById('tl-blockers');
+  if (blockers) blockers.onclick = () => set({blockers: params.blockers ? '' : '1'});
+  const reset = document.getElementById('tl-reset');
+  if (reset) reset.onclick = () => go('timeline', {});
+};
+
+/* ===================================================== execution controls */
+function controlForm(title, summary, id, body, button) {
+  return '<details class="control-form"><summary><div><b>' + E(title) + '</b><span>' +
+    E(summary) + '</span></div><i>+</i></summary><form id="' + id + '">' + body +
+    '<footer><button class="btn primary" type="submit">' + E(button) + '</button></footer></form></details>';
+}
+
+function readinessCard(a) {
+  const constraints = (a.constraints || []).map(c => '<div class="constraint-line"><div>' +
+    tagFor(c.status, ST) + '<b>' + E(String(c.constraint_type || '').replace(/_/g, ' ')) + '</b>' +
+    '<span>' + E(c.description) + '</span></div><small>' + (c.owner ? E(c.owner) + ' · ' : '') +
+    'needed ' + day(c.required_by) + '</small>' +
+    (['open', 'in_progress'].includes(c.status) ? '<button class="btn sm" data-clear-constraint="' +
+      E(c.id) + '">Clear</button>' : '') + '</div>').join('');
+  return '<article class="readiness-card ' + E(a.readiness) + '"><header><div><small>' +
+    E(a.display_id || ('UID ' + a.uid)) + ' · ' + E(a.wbs || '') + '</small><h3>' + E(a.name) +
+    '</h3></div>' + tagFor(a.readiness, ST) + '</header><div class="readiness-meta"><span>' +
+    day(a.start) + ' → ' + day(a.finish) + '</span><span>' +
+    (a.days_to_start === null || a.days_to_start === undefined ? 'start not dated' :
+      (a.days_to_start < 0 ? Math.abs(a.days_to_start) + 'd past planned start' : a.days_to_start + 'd to start')) +
+    '</span>' + (a.critical ? '<span class="tag red">critical path</span>' : '') + '</div>' +
+    '<div class="constraint-list">' + (constraints || '<span class="constraint-empty">No readiness assessment recorded.</span>') +
+    '</div><footer><button class="btn sm" onclick="go(\'activity\',{id:' + a.uid + '})">Open activity</button>' +
+    '<button class="btn sm" data-add-constraint="' + a.uid + '">Add constraint</button></footer></article>';
+}
+
+VIEWS.controls = async (pid, params) => {
+  params = params || {};
+  const r = await A('/projects/' + pid + '/execution-controls?' + new URLSearchParams({
+    days: params.days || 42, anchor: params.anchor || '',
+  }));
+  const look = r.lookahead || {activities: [], counts: {}};
+  const hindrances = (r.hindrances || []).map(h => '<article class="hindrance-card"><header><div>' +
+    '<small>' + E(h.ref || h.category || 'Site hindrance') + '</small><h3>' + E(h.title) + '</h3></div>' +
+    sev(h.severity) + tagFor(h.status, ST) + '</header><p>' + E(h.description || 'No description') + '</p>' +
+    '<div class="hindrance-meta"><span>' + day(h.started_on || h.reported_on) + ' → ' + day(h.cleared_on) + '</span>' +
+    (h.owner ? '<span>Owner · ' + E(h.owner) + '</span>' : '') +
+    (h.responsibility ? '<span>Responsibility · ' + E(h.responsibility) + '</span>' : '') +
+    (h.schedule_impact_days !== null && h.schedule_impact_days !== undefined ? '<span>' + num(h.schedule_impact_days, 1) + 'd stated impact</span>' : '') +
+    '</div>' +
+    '<footer><span>' + (h.activity_uids || []).map(uid => '<button class="link mono" onclick="go(\'activity\',{id:' + uid + '})">UID ' + uid + '</button>').join(' ') + '</span>' +
+    (['open', 'monitoring'].includes(h.status) ? '<button class="btn sm" data-clear-hindrance="' + E(h.id) + '">Mark cleared</button>' : '') +
+    '</footer></article>').join('');
+  const context = (r.site_context || []).slice(0, 30).map(item => '<tr><td class="mono">' + day(item.date) +
+    '</td><td>' + tagFor(item.observation_type, {weather:'blue',manpower:'violet',equipment:'amber',report_metadata:'grey'}) +
+    '</td><td>' + E(item.description) + '</td><td>' + E(item.location || '—') + '</td><td>' +
+    (item.activity_uids || []).map(uid => '<button class="link mono" onclick="go(\'activity\',{id:' + uid + '})">' + uid + '</button>').join(', ') + '</td></tr>').join('');
+  const bimRows = (r.bim_identifiers || []).map(item => '<tr><td>' + tagFor(item.status, ST) + '</td><td class="mono">' +
+    E(item.identifier_type) + '</td><td class="mono">' + E(item.identifier_value) + '</td><td>' + E(item.model_name || '—') +
+    '</td><td>' + E(item.element_type || '—') + '</td><td>' + (item.activity_uid ? '<button class="link" onclick="go(\'activity\',{id:' +
+    item.activity_uid + '})">' + E(item.display_id || ('UID ' + item.activity_uid)) + ' · ' + E(item.activity_name || '') + '</button>' :
+      '<span class="tag violet">awaiting proposal verification</span>') + '</td></tr>');
+  const newScope = (r.new_scope_events || []).map(item => '<article class="new-scope-card"><div><small>' +
+    E(item.source_file || 'Field evidence') + ' · ' + day(item.event_date) + '</small><b>' +
+    E(item.description || 'Unplanned execution event') + '</b><span>Kept outside the current schedule until a planner chooses to propose an activity.</span></div>' +
+    '<button class="btn sm" data-new-scope="' + E(item.execution_event_id) + '" data-evidence="' + E(item.evidence_id || '') +
+    '" data-name="' + E(item.description || '') + '">Draft governed activity</button></article>').join('');
+
+  const constraintForm = controlForm('Add readiness constraint', 'Tie a drawing, material, access or other hold to one activity.',
+    'constraint-form', '<div class="control-form-grid"><label><span>Activity UID</span><input class="inp" name="activity_uid" required></label>' +
+    '<label><span>Constraint type</span><select class="inp" name="constraint_type"><option>drawing</option><option>material</option><option>permit</option><option>access</option><option>workfront</option><option>crew</option><option>equipment</option><option>inspection</option><option>ndt</option><option>safety</option><option>interface</option><option>other</option></select></label>' +
+    '<label><span>Needed by</span><input class="inp" name="required_by" type="date"></label><label><span>Owner</span><input class="inp" name="owner"></label>' +
+    '<label><span>Control level</span><select class="inp" name="criticality"><option value="blocker">Blocker</option><option value="watch">Watch</option></select></label></div>' +
+    '<label><span>Description</span><textarea class="inp" name="description" rows="3" required></textarea></label>', 'Add constraint');
+  const hindranceForm = controlForm('Register hindrance', 'Record what actually obstructed work; optionally make it a readiness blocker.',
+    'hindrance-form', '<div class="control-form-grid"><label><span>Title</span><input class="inp" name="title" required></label>' +
+    '<label><span>Reference</span><input class="inp" name="ref" placeholder="HIN-001"></label><label><span>Category</span><select class="inp" name="category"><option>weather</option><option>drawing</option><option>material</option><option>access</option><option>permit</option><option>equipment</option><option>interface</option><option>other</option></select></label>' +
+    '<label><span>Severity</span><select class="inp" name="severity"><option>medium</option><option>low</option><option>high</option><option>critical</option></select></label>' +
+    '<label><span>Started</span><input class="inp" type="date" name="started_on"></label><label><span>Activity UIDs</span><input class="inp" name="activity_uids" placeholder="101, 102"></label>' +
+    '<label><span>Owner</span><input class="inp" name="owner"></label><label><span>Responsible party</span><input class="inp" name="responsibility"></label>' +
+    '<label><span>Stated impact days</span><input class="inp" type="number" min="0" step="0.5" name="schedule_impact_days"></label></div>' +
+    '<label><span>Description and observed cause</span><textarea class="inp" name="description" rows="3"></textarea></label>' +
+    '<label class="checkline"><input type="checkbox" name="create_readiness_blocker"><span>Create an open readiness blocker for every listed activity</span></label>', 'Register hindrance');
+  const contextForm = controlForm('Add site context', 'Weather, manpower and equipment remain typed evidence—not automatic progress.',
+    'context-form', '<div class="control-form-grid"><label><span>Date</span><input class="inp" type="date" name="date" value="' +
+    E(look.anchor || '') + '"></label><label><span>Location</span><input class="inp" name="location"></label><label><span>Contractor</span><input class="inp" name="contractor"></label>' +
+    '<label><span>Related activity UIDs</span><input class="inp" name="activity_uids" placeholder="101, 102"></label></div>' +
+    '<label><span>Weather</span><input class="inp" name="weather" placeholder="Heavy rain 14:00–16:30"></label>' +
+    '<div class="control-form-grid"><label><span>Manpower · one per line</span><textarea class="inp" rows="3" name="manpower" placeholder="Welders: 8&#10;Fitters: 12"></textarea></label>' +
+    '<label><span>Equipment · one per line</span><textarea class="inp" rows="3" name="equipment" placeholder="Crane: 1&#10;Excavator: 2"></textarea></label></div>' +
+    '<label><span>Context note</span><textarea class="inp" rows="2" name="notes"></textarea></label>', 'Save confirmed context');
+  const bimForm = controlForm('Link BIM identifier', 'Add an exact model identity signal to an existing activity.', 'bim-form',
+    '<div class="control-form-grid"><label><span>Activity UID</span><input class="inp" name="activity_uid" required></label>' +
+    '<label><span>Identifier type</span><select class="inp" name="identifier_type"><option>IFC_GUID</option><option>REVIT_UNIQUE_ID</option><option>COBIE_TAG</option><option>BIM_OBJECT_ID</option><option>MODEL_ELEMENT_ID</option></select></label>' +
+    '<label><span>Identifier</span><input class="inp mono" name="identifier_value" required></label><label><span>Model</span><input class="inp" name="model_name"></label>' +
+    '<label><span>Element type</span><input class="inp" name="element_type"></label><label><span>Location</span><input class="inp" name="location"></label></div>', 'Link identifier');
+  const suggestionForm = controlForm('Suggest new schedule activity', 'Creates a pending proposal only; it cannot bypass dry-run and approval.',
+    'new-activity-form', '<input type="hidden" name="source_event_id"><input type="hidden" name="evidence_ids"><div class="control-form-grid">' +
+    '<label><span>Activity name</span><input class="inp" name="name" required></label><label><span>Duration days</span><input class="inp" type="number" min="0" step="0.5" name="duration"></label>' +
+    '<label><span>Planned start</span><input class="inp" type="date" name="start"></label><label><span>Parent UID</span><input class="inp" type="number" name="parent_uid"></label>' +
+    '<label><span>BIM identifier</span><input class="inp mono" name="identifier_value"></label><label><span>BIM model</span><input class="inp" name="model_name"></label></div>' +
+    '<label><span>Why this is new scope</span><textarea class="inp" rows="3" name="reason"></textarea></label>', 'Create governed proposal');
+
+  return head('Execution Control', 'Look-ahead readiness · hindrances · field context · BIM identity',
+    '<select class="inp" id="lookahead-days"><option value="14">2 weeks</option><option value="42">6 weeks</option><option value="90">90 days</option></select>' +
+    '<button class="btn sm" onclick="go(\'timeline\',{window:\'42\'})">Open timeline</button>') +
+    '<div class="grid g4 control-summary">' + stat('Open hindrances', int(r.counts.open_hindrances), 'observed obstructions', r.counts.open_hindrances ? 'warm' : 'good') +
+    stat('Open readiness constraints', int(r.counts.open_constraints), 'drawing, material, access and other holds', r.counts.open_constraints ? 'warm' : 'good') +
+    stat('Confirmed BIM identities', int(r.counts.bim_links), 'exact model-to-activity links') +
+    stat('New-scope events', int(r.counts.new_scope_waiting), 'not yet represented by a governed activity proposal', r.counts.new_scope_waiting ? 'warm' : 'good') + '</div>' +
+    '<div class="control-forms">' + constraintForm + hindranceForm + contextForm + bimForm + suggestionForm + '</div>' +
+    '<div class="section-divider"><span>' + E(look.anchor) + ' → ' + E(look.horizon) + '</span><small>Readiness look-ahead</small></div>' +
+    '<div class="readiness-strip"><span class="green">' + int(look.counts.ready) + ' ready</span><span class="red">' + int(look.counts.blocked) +
+    ' blocked</span><span class="amber">' + int(look.counts.attention) + ' attention</span><span>' + int(look.counts.not_assessed) + ' not assessed</span><small>' + E(look.definition) + '</small></div>' +
+    '<div class="readiness-grid">' + ((look.activities || []).map(readinessCard).join('') || empty('No unfinished activities in this look-ahead', 'Change the horizon or verify the schedule dates.')) + '</div>' +
+    '<div class="section-divider"><span>Hindrance register</span><small>Actual obstructions, separate from possible risks</small></div>' +
+    '<div class="hindrance-grid">' + (hindrances || empty('No hindrances registered', 'Use the form above when a condition actually obstructs work.')) + '</div>' +
+    '<div class="section-divider"><span>New-scope queue</span><small>Reality graph events outside the current schedule</small></div>' +
+    '<div class="new-scope-list">' + (newScope || empty('No unrepresented execution events', 'New physical scope appears here without being forced onto the nearest activity.')) + '</div>' +
+    panel('Weather, manpower and equipment context <small>' + int((r.site_context || []).length) + '</small>',
+      '<div class="body"><div class="note">Context helps explain execution conditions. It never becomes progress without activity evidence.</div>' +
+      '<div class="tw"><table><thead><tr><th>Date</th><th>Type</th><th>Observation</th><th>Location</th><th>Activities</th></tr></thead><tbody>' + context + '</tbody></table></div></div>') +
+    panel('BIM and model identifiers <small>' + int((r.bim_identifiers || []).length) + '</small>',
+      '<div class="body">' + table([{t:'State'},{t:'Type'},{t:'Identifier'},{t:'Model'},{t:'Element'},{t:'Schedule activity'}], r.bim_identifiers || [], (_, index) => bimRows[index],
+        {emptyTitle:'No BIM identifiers linked',emptyMsg:'VEDA works without BIM. Add identifiers only when an authoritative model mapping is available.'}) + '</div>');
+};
+
+VIEWS.bind_controls = (pid, params) => {
+  const days = document.getElementById('lookahead-days');
+  if (days) { days.value = String(params.days || 42); days.onchange = () => go('controls', {days: days.value}); }
+  const payload = form => {
+    const body = Object.fromEntries(new FormData(form).entries());
+    form.querySelectorAll('input[type="checkbox"][name]').forEach(box => body[box.name] = box.checked);
+    return body;
+  };
+  const bindForm = (id, path, message) => {
+    const form = document.getElementById(id);
+    if (!form) return;
+    form.onsubmit = async event => {
+      event.preventDefault(); const button = form.querySelector('[type="submit"]'); button.disabled = true;
+      try { await P(path, payload(form)); window.toast(message, 'good'); window.render(); }
+      catch (error) { window.toast(error.message, 'bad'); button.disabled = false; }
+    };
+  };
+  bindForm('constraint-form', '/projects/' + pid + '/readiness-constraints', 'Readiness constraint added');
+  bindForm('hindrance-form', '/projects/' + pid + '/hindrances', 'Hindrance registered');
+  bindForm('context-form', '/projects/' + pid + '/site-context', 'Site context saved as evidence');
+  bindForm('bim-form', '/projects/' + pid + '/bim-identifiers', 'BIM identifier linked');
+  bindForm('new-activity-form', '/projects/' + pid + '/new-activity-suggestions', 'Governed activity proposal created');
+  document.querySelectorAll('[data-clear-constraint]').forEach(button => button.onclick = async () => {
+    await P('/projects/' + pid + '/readiness-constraints/' + button.dataset.clearConstraint + '/status', {status:'cleared'});
+    window.toast('Constraint cleared', 'good'); window.render();
+  });
+  document.querySelectorAll('[data-clear-hindrance]').forEach(button => button.onclick = async () => {
+    await P('/projects/' + pid + '/hindrances/' + button.dataset.clearHindrance + '/status', {status:'cleared'});
+    window.toast('Hindrance cleared', 'good'); window.render();
+  });
+  document.querySelectorAll('[data-add-constraint]').forEach(button => button.onclick = () => {
+    const form = document.getElementById('constraint-form'); const details = form && form.closest('details');
+    if (!form) return; form.elements.activity_uid.value = button.dataset.addConstraint;
+    if (details) details.open = true; form.scrollIntoView({behavior:'smooth', block:'center'});
+  });
+  document.querySelectorAll('[data-new-scope]').forEach(button => button.onclick = () => {
+    const form = document.getElementById('new-activity-form'); const details = form && form.closest('details');
+    if (!form) return;
+    form.elements.source_event_id.value = button.dataset.newScope;
+    form.elements.evidence_ids.value = button.dataset.evidence || '';
+    form.elements.name.value = String(button.dataset.name || '').slice(0, 240);
+    if (details) details.open = true; form.scrollIntoView({behavior:'smooth', block:'center'});
+  });
+};
 
 /* ===================================================== 3. WBS */
 VIEWS.wbs = async (pid) => {
@@ -562,6 +1321,15 @@ VIEWS.bind_activities = (pid, params) => {
 /* =============================================== 5. Activity detail */
 VIEWS.activity = async (pid, params) => {
   const d = await A('/projects/' + pid + '/activities/' + params.id);
+  // Older running VEDA processes may not yet include the additive
+  // execution-control collections. Treat omitted collections as empty so a
+  // milestone/activity click remains readable during a rolling restart.
+  for (const key of ['predecessors', 'successors', 'assignments', 'issues',
+    'risks', 'proposals', 'hindrances', 'readiness_constraints',
+    'site_context', 'bim_identifiers', 'audit']) {
+    if (!Array.isArray(d[key])) d[key] = [];
+  }
+  if (!d.evidence || typeof d.evidence !== 'object') d.evidence = {};
   const a = d.activity;
   const asem = d.schedule_semantics || {};
   const activityCriticalAvailable = !!asem.criticality_available;
@@ -678,6 +1446,37 @@ VIEWS.activity = async (pid, params) => {
         '<td class="mono">' + day(x.start) + '</td>' +
         '<td class="mono">' + day(x.finish) + '</td></tr>',
       { emptyTitle: 'No assignments', emptyMsg: '' })) +
+
+    '<div class="grid g2">' +
+    panel('Readiness constraints <small>' + d.readiness_constraints.length + '</small>',
+      table([{t:'Type'},{t:'Description'},{t:'Needed by'},{t:'Owner'},{t:'Status'}],
+        d.readiness_constraints, c => '<tr><td>' + E(String(c.constraint_type || '').replace(/_/g, ' ')) +
+        '</td><td>' + E(c.description) + '</td><td class="mono">' + day(c.required_by) + '</td><td>' +
+        E(c.owner || '—') + '</td><td>' + tagFor(c.status, ST) + '</td></tr>',
+        {emptyTitle:'Readiness not assessed',emptyMsg:'No recorded constraint does not mean ready.'}),
+      '<button class="btn sm" onclick="go(\'controls\')">Manage readiness</button>') +
+    panel('Hindrances <small>' + d.hindrances.length + '</small>',
+      table([{t:'Hindrance'},{t:'Started'},{t:'Impact'},{t:'Status'}], d.hindrances, h =>
+        '<tr><td><b>' + E(h.title) + '</b><small class="block-sub">' + E(h.cause || h.description || '') +
+        '</small></td><td class="mono">' + day(h.started_on || h.reported_on) + '</td><td class="mono">' +
+        (h.schedule_impact_days === null || h.schedule_impact_days === undefined ? '—' : num(h.schedule_impact_days, 1) + 'd') +
+        '</td><td>' + tagFor(h.status, ST) + '</td></tr>',
+        {emptyTitle:'No hindrance linked',emptyMsg:'Observed obstructions remain separate from possible risks.'}),
+      '<button class="btn sm" onclick="go(\'controls\')">Open register</button>') + '</div>' +
+
+    '<div class="grid g2">' +
+    panel('Site context <small>' + d.site_context.length + '</small>',
+      table([{t:'Date'},{t:'Type'},{t:'Observation'},{t:'Source'}], d.site_context, item =>
+        '<tr class="click" onclick="go(\'evidence-detail\',{id:\'' + E(item.id) + '\'})"><td class="mono">' +
+        day(item.date) + '</td><td>' + E(String(item.observation_type || '').replace(/_/g, ' ')) + '</td><td>' +
+        E(item.description) + '</td><td>' + prov(item.provenance) + '</td></tr>',
+        {emptyTitle:'No linked context',emptyMsg:'Weather, manpower and equipment can be linked without asserting progress.'})) +
+    panel('BIM identities <small>' + d.bim_identifiers.length + '</small>',
+      table([{t:'Type'},{t:'Identifier'},{t:'Model'},{t:'State'}], d.bim_identifiers, item =>
+        '<tr><td>' + E(item.identifier_type) + '</td><td class="mono">' + E(item.identifier_value) +
+        '</td><td>' + E(item.model_name || '—') + '</td><td>' + tagFor(item.status, ST) + '</td></tr>',
+        {emptyTitle:'No BIM identity',emptyMsg:'Optional; the activity remains usable without a model.'}),
+      '<button class="btn sm" onclick="go(\'controls\')">Link identifier</button>') + '</div>' +
 
     evPanel +
 
@@ -1100,42 +1899,81 @@ VIEWS.bind_issues = (pid) => {
 
 VIEWS.risks = async (pid) => {
   const r = await A('/projects/' + pid + '/risks');
+  const risks = Array.isArray(r.risks) ? r.risks : [];
+  const statusOptions = ['open', 'monitoring', 'closed'];
+  const statusLabel = {open: 'Open', monitoring: 'Monitoring', closed: 'Closed'};
   return head('Risks', 'Possible future events',
     '<span class="tag grey">Risk = might happen</span>') +
-    panel('Risks <small>' + r.risks.length + '</small>',
-      '<div class="body">' + (r.risks.length ? r.risks.map(i =>
-      '<div class="review"><div class="h">' +
-      '<h3>' + sev(i.rating) + ' · ' + E(i.title) + '</h3>' +
-      '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">' +
-      tagFor(i.status, ST) + prov(i.provenance) +
-      '<span class="tag grey">P ' + E(i.probability) + '</span>' +
-      '<span class="tag grey">I ' + E(i.impact) + '</span>' +
-      (i.category ? '<span class="tag blue">' + E(i.category) + '</span>' : '') +
-      (i.critical_path_relevance
-        ? '<span class="tag red">critical path</span>' : '') +
-      '<div style="flex:1"></div>' +
-      '<button class="btn sm" data-risk="' + E(i.id) + '" data-st="closed">' +
-      'Close</button></div></div>' +
-      '<div class="q">' + E(i.description) + '</div>' +
-      '<div class="samples"><dl class="kv">' +
-      (i.mitigation ? row('Mitigation', E(i.mitigation)) : '') +
-      (i.trigger ? row('Trigger', E(i.trigger)) : '') +
-      (i.critical_path_relevance
-        ? row('Critical path', E(i.critical_path_relevance)) : '') +
-      (i.schedule_impact_days
-        ? row('Schedule impact', num(i.schedule_impact_days, 0) + ' d') : '') +
-      (i.activity_uids.length ? row('Activities', i.activity_uids.map(u =>
-        '<span class="link mono" onclick="go(\'activity\',{id:' + u + '})">' +
-        E(u) + '</span>').join(', ')) : '') +
-      row('Confidence', num(i.confidence, 2)) +
-      '</dl></div></div>').join('')
-      : empty('No risks recorded', '')) + '</div>');
+    panel('Risks <small>' + risks.length + '</small>',
+      '<div class="body">' + (risks.length ? risks.map(i => {
+        const activityUids = Array.isArray(i.activity_uids) ? i.activity_uids : [];
+        const evidenceIds = Array.isArray(i.evidence_ids) ? i.evidence_ids : [];
+        const current = String(i.status || 'open').toLowerCase();
+        const options = statusOptions.includes(current)
+          ? statusOptions : [current].concat(statusOptions);
+        const actionStatus = current === 'closed' ? 'open' : 'closed';
+        const actionLabel = current === 'closed' ? 'Reopen' : 'Close';
+        return '<article class="review risk-card"><div class="h">' +
+          '<div class="risk-heading"><h3>' + sev(i.rating) + ' · ' +
+          E(i.title) + '</h3>' + (i.ref ? '<span class="mono risk-ref">' +
+            E(i.ref) + '</span>' : '') + '</div>' +
+          '<div class="risk-meta">' + tagFor(i.status, ST) + prov(i.provenance) +
+          '<span class="tag grey">P ' + E(i.probability || '—') + '</span>' +
+          '<span class="tag grey">I ' + E(i.impact || '—') + '</span>' +
+          (i.category ? '<span class="tag blue">' + E(i.category) + '</span>' : '') +
+          (i.critical_path_relevance ? '<span class="tag red">critical path</span>' : '') +
+          '<div class="risk-actions"><label class="risk-status-control"><span>Status</span>' +
+          '<select class="inp risk-status" data-risk-status="' + E(i.id) +
+          '" aria-label="Update risk status">' + options.map(status =>
+            '<option value="' + E(status) + '"' + (status === current ? ' selected' : '') +
+            '>' + E(statusLabel[status] || status) + '</option>').join('') +
+          '</select></label><button class="btn sm" data-risk="' + E(i.id) +
+          '" data-st="' + actionStatus + '">' + actionLabel + '</button></div></div></div>' +
+          '<details class="risk-details"><summary><span>Inspect risk details</span>' +
+          '<small>' + (activityUids.length + evidenceIds.length) +
+          ' linked record(s)</small></summary><div class="risk-details-body">' +
+          '<div class="q">' + E(i.description || 'No description recorded.') + '</div>' +
+          '<div class="samples"><dl class="kv">' +
+          (i.owner ? row('Owner', E(i.owner)) : '') +
+          (i.mitigation ? row('Mitigation', E(i.mitigation)) : '') +
+          (i.trigger ? row('Trigger', E(i.trigger)) : '') +
+          (i.critical_path_relevance ? row('Critical path', E(i.critical_path_relevance)) : '') +
+          (i.schedule_impact_days !== null && i.schedule_impact_days !== undefined
+            ? row('Schedule impact', num(i.schedule_impact_days, 0) + ' d') : '') +
+          (activityUids.length ? row('Activities', activityUids.map(u =>
+            '<span class="link mono" onclick="go(\'activity\',{id:' + u + '})">' +
+            E(u) + '</span>').join(', ')) : '') +
+          (evidenceIds.length ? row('Evidence', evidenceIds.map(x =>
+            '<span class="link mono" onclick="go(\'evidence-detail\',{id:\'' + E(x) +
+            '\'})">' + E(String(x).slice(0, 8)) + '</span>').join(', ')) : '') +
+          row('Confidence', num(i.confidence, 2)) +
+          '</dl></div></div></details></article>';
+      }).join('') : empty('No risks recorded', '')) + '</div>');
 };
 VIEWS.bind_risks = (pid) => {
+  document.querySelectorAll('[data-risk-status]').forEach(select => select.onchange = async () => {
+    const status = select.value;
+    select.disabled = true;
+    try {
+      await P('/projects/' + pid + '/risks/' + select.dataset.riskStatus + '/status', {status});
+      window.toast('Risk status updated to ' + (status === 'closed' ? 'closed' : status), 'good');
+      window.render();
+    } catch (error) {
+      select.disabled = false;
+      window.toast(error.message || 'Risk status could not be updated', 'bad');
+    }
+  });
   document.querySelectorAll('[data-risk]').forEach(b => b.onclick = async () => {
-    await P('/projects/' + pid + '/risks/' + b.dataset.risk + '/status',
-      { status: b.dataset.st });
-    window.toast('Risk closed', 'good'); window.render();
+    b.disabled = true;
+    try {
+      await P('/projects/' + pid + '/risks/' + b.dataset.risk + '/status',
+        { status: b.dataset.st });
+      window.toast(b.dataset.st === 'closed' ? 'Risk closed' : 'Risk reopened', 'good');
+      window.render();
+    } catch (error) {
+      b.disabled = false;
+      window.toast(error.message || 'Risk status could not be updated', 'bad');
+    }
   });
 };
 
@@ -2048,6 +2886,18 @@ window.bindThinkToggles = function bindThinkToggles(root) {
    VEDA's reasoning trace rides above each answer via the shared think-panel. */
 VIEWS._askDraft = VIEWS._askDraft || {};
 VIEWS._ask = VIEWS._ask || {};
+VIEWS.stopAskVoice = (pid) => {
+  const voice = VIEWS._ask[pid] && VIEWS._ask[pid].voice;
+  if (!voice) return;
+  voice.userStopped = true;
+  voice.listening = false;
+  if (voice.recognition) { try { voice.recognition.stop(); } catch (_) {} }
+  if (voice.stream) {
+    try { voice.stream.getTracks().forEach(track => track.stop()); } catch (_) {}
+  }
+  voice.recognition = null;
+  voice.stream = null;
+};
 
 const ASK_SUGGESTIONS = [
   'What is driving the current forecast finish?',
@@ -2152,10 +3002,14 @@ VIEWS.ask = async (pid) => {
     '<div class="ask-dock"><div class="ask-composer">' +
     '<textarea class="ask-input" id="qbox" rows="1" ' +
     'placeholder="Ask about an activity, a date, progress, a risk…">' + E(draft) + '</textarea>' +
+    '<button class="ask-voice" id="ask-voice" type="button" aria-label="Speak question" ' +
+    'title="Speak question"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect>' +
+    '<path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"></path></svg></button>' +
     '<button class="ask-send" id="qgo" type="button" aria-label="Send question">' +
     '<i aria-hidden="true">➤</i></button></div>' +
     '<div class="ask-dock-tools"><label class="ask-grounding"><input id="ask-grounded" type="checkbox" ' +
     ((VIEWS._ask[pid] || {}).forceGrounded ? 'checked' : '') + '><span><i></i>Deep-check project sources</span></label>' +
+    '<span class="ask-voice-status" id="ask-voice-status" role="status" aria-live="polite"></span>' +
     '<div class="ask-dock-hint mono">Auto routes simple chat quickly · grounded mode stays read-only</div></div>' +
     '</div></div>';
 };
@@ -2167,6 +3021,8 @@ VIEWS.bind_ask = (pid) => {
   const thread = document.getElementById('ask-thread');
   const spacer = document.getElementById('ask-tail-spacer');
   const grounded = document.getElementById('ask-grounded');
+  const voiceBtn = document.getElementById('ask-voice');
+  const voiceStatus = document.getElementById('ask-voice-status');
   if (!box || !btn || !scroll) return;
 
   const st = VIEWS._ask[pid] = VIEWS._ask[pid] || {};
@@ -2234,11 +3090,140 @@ VIEWS.bind_ask = (pid) => {
   VIEWS._ask._resize = () => { if (scroll.isConnected) sizeSpacer(); };
   window.addEventListener('resize', VIEWS._ask._resize);
 
+  // --- speak-to-text ---------------------------------------------------
+  // Ask VEDA voice input is a draft composer aid, not a field-capture
+  // recording. The operator can edit the words and still has to press Send.
+  const voiceState = st.voice || (st.voice = {
+    recognition: null, stream: null, listening: false,
+    finalText: '', userStopped: false, error: null,
+  });
+  const setVoiceUi = (message, tone) => {
+    if (voiceBtn) {
+      voiceBtn.classList.toggle('is-listening', !!voiceState.listening);
+      voiceBtn.setAttribute('aria-pressed', voiceState.listening ? 'true' : 'false');
+      voiceBtn.title = voiceState.listening ? 'Stop speaking' : 'Speak question';
+      voiceBtn.setAttribute('aria-label', voiceState.listening ? 'Stop speaking' : 'Speak question');
+    }
+    if (voiceStatus) {
+      voiceStatus.className = 'ask-voice-status' + (tone ? ' ' + tone : '');
+      voiceStatus.textContent = message || '';
+    }
+  };
+  const releaseVoiceStream = () => {
+    if (!voiceState.stream) return;
+    try { voiceState.stream.getTracks().forEach(track => track.stop()); } catch (_) {}
+    voiceState.stream = null;
+  };
+  const stopVoice = (userStopped) => {
+    voiceState.userStopped = !!userStopped;
+    voiceState.listening = false;
+    if (voiceState.recognition) { try { voiceState.recognition.stop(); } catch (_) {} }
+    releaseVoiceStream();
+    voiceState.recognition = null;
+    setVoiceUi(userStopped ? 'Voice input stopped · review the draft before sending.' : '', '');
+  };
+  const voiceError = (error) => {
+    const denied = error && (error.name === 'NotAllowedError' || error.name === 'SecurityError' ||
+      error.error === 'not-allowed' || error.error === 'service-not-allowed');
+    const message = denied
+      ? 'Microphone permission was denied. Allow it for this VEDA page, then try again.'
+      : error && (error.name === 'NotFoundError' || error.error === 'audio-capture')
+        ? 'No microphone is available. Check the selected input and try again.'
+        : 'Voice input is unavailable here. Type your question instead.';
+    voiceState.error = message;
+    stopVoice(false);
+    setVoiceUi(message, 'warn');
+    if (window.toast) window.toast(message, 'bad');
+  };
+  const startVoice = async () => {
+    if (voiceState.listening) { stopVoice(true); return; }
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setVoiceUi('Voice input is not supported in this browser. Type your question instead.', 'warn');
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setVoiceUi('This browser cannot request microphone access. Type your question instead.', 'warn');
+      return;
+    }
+    if (voiceBtn) voiceBtn.disabled = true;
+    setVoiceUi('Requesting microphone…', '');
+    let acquiredStream = null;
+    try {
+      acquiredStream = await navigator.mediaDevices.getUserMedia({audio: true});
+      const recognition = new Recognition();
+      const stream = acquiredStream;
+      voiceState.stream = stream;
+      voiceState.recognition = recognition;
+      voiceState.listening = true;
+      voiceState.userStopped = false;
+      voiceState.error = null;
+      voiceState.finalText = box.value.trim();
+      recognition.lang = navigator.language || 'en-IN';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.onresult = (event) => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const phrase = event.results[i][0].transcript.trim();
+          if (!phrase) continue;
+          if (event.results[i].isFinal) voiceState.finalText +=
+            (voiceState.finalText ? ' ' : '') + phrase;
+          else interim += (interim ? ' ' : '') + phrase;
+        }
+        const value = (voiceState.finalText + (interim ? ' ' + interim : '')).trim();
+        const liveBox = document.getElementById('qbox');
+        if (!liveBox) return;
+        liveBox.value = value;
+        VIEWS._askDraft[pid] = value;
+        liveBox.dispatchEvent(new Event('input', {bubbles: true}));
+      };
+      recognition.onerror = (event) => {
+        if (event && event.error === 'aborted') return;
+        voiceError(event || new Error('recognition_failed'));
+      };
+      recognition.onend = () => {
+        if (!voiceState.listening) return;
+        const stoppedByUser = voiceState.userStopped;
+        voiceState.listening = false;
+        releaseVoiceStream();
+        voiceState.recognition = null;
+        setVoiceUi(stoppedByUser
+          ? 'Voice input stopped · review the draft before sending.'
+          : 'Voice draft ready · review before sending.', '');
+      };
+      const track = stream.getAudioTracks && stream.getAudioTracks()[0];
+      try {
+        if (track) recognition.start(track); else recognition.start();
+      } catch (_) {
+        // Older browsers expose SpeechRecognition but reject the optional
+        // MediaStreamTrack argument. Release the probe stream and retry using
+        // their normal microphone path.
+        releaseVoiceStream();
+        recognition.start();
+      }
+      setVoiceUi('Listening… speak naturally, then review the draft.', 'active');
+    } catch (error) {
+      if (acquiredStream && !voiceState.stream) {
+        try { acquiredStream.getTracks().forEach(track => track.stop()); } catch (_) {}
+      }
+      voiceError(error);
+    } finally {
+      if (voiceBtn) voiceBtn.disabled = false;
+    }
+  };
+  if (voiceBtn) {
+    voiceBtn.onclick = startVoice;
+    if (voiceState.listening) setVoiceUi('Listening… speak naturally, then review the draft.', 'active');
+  }
+
   // --- send ------------------------------------------------------------
   box.oninput = () => { VIEWS._askDraft[pid] = box.value; grow(); };
   const send = async () => {
     const text = box.value.trim();
     if (!text || btn.disabled) return;
+    if (voiceState.listening) stopVoice(true);
     btn.disabled = true;
     box.disabled = true;
     try {

@@ -7,9 +7,11 @@ filtering, paging or opening a detail view.
 from __future__ import annotations
 
 import asyncio
+import calendar
 import json
 import os
 import time
+from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Query, Request, UploadFile
@@ -21,8 +23,8 @@ from .. import config, db, events, jobs, reviews
 from ..agent import local_antigravity, registry
 from ..integrations import primavera
 from ..mcpc import horizun, schedule_ops
-from ..pipeline import (actuals, conflicts, field_capture, ingest, linking,
-                        proof_contract, proposals, security)
+from ..pipeline import (actuals, conflicts, controls, field_capture, ingest, linking,
+                         proof_contract, proposals, security)
 
 router = APIRouter(prefix="/api")
 
@@ -37,6 +39,131 @@ def _project_or_404(pid: str) -> dict:
 def _snapshot(pid: str) -> dict | None:
     return db.q1("SELECT * FROM schedule_snapshots WHERE project_id=? "
                  "AND is_current=1 ORDER BY created_at DESC LIMIT 1", [pid])
+
+
+def _iso_day(value) -> date | None:
+    try:
+        return date.fromisoformat(str(value or "")[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _control_room_insights(pid: str, snap: dict | None) -> dict:
+    """Honest visual summaries; never manufacture an unsupported progress curve."""
+    activities = db.q(
+        "SELECT uid,status,percent_complete,actual_start,actual_finish,"
+        "baseline_start,baseline_finish,start,finish FROM activities "
+        "WHERE project_id=? AND COALESCE(is_summary,0)=0 ORDER BY uid", [pid])
+    distribution = {"completed": 0, "in_progress": 0, "not_started": 0,
+                    "not_evaluable": 0}
+    distribution_basis = "Persisted leaf-activity status, actual dates and recorded progress"
+    for activity in activities:
+        status = str(activity.get("status") or "").lower().replace("_", " ")
+        progress = activity.get("percent_complete")
+        try:
+            progress = float(progress) if progress is not None else None
+        except (TypeError, ValueError):
+            progress = None
+        if (activity.get("actual_finish") or (progress is not None and progress >= 100) or
+                any(word in status for word in ("complete", "finished", "done"))):
+            distribution["completed"] += 1
+        elif (activity.get("actual_start") or (progress is not None and progress > 0) or
+              any(word in status for word in ("progress", "started", "active"))):
+            distribution["in_progress"] += 1
+        elif status or progress == 0:
+            distribution["not_started"] += 1
+        else:
+            distribution["not_evaluable"] += 1
+    source_counts = (((db.jloads((snap or {}).get("info_json"), {}) or {}).get("source")
+                      or {}).get("status_counts") or {})
+    if isinstance(source_counts, dict):
+        source_distribution = {
+            "completed": int(source_counts.get("completed") or source_counts.get("complete") or 0),
+            "in_progress": int(source_counts.get("in_progress") or 0),
+            "not_started": int(source_counts.get("not_started") or 0),
+        }
+        reported_total = sum(source_distribution.values())
+        if reported_total:
+            distribution = {**source_distribution,
+                            "not_evaluable": max(0, len(activities) - reported_total)}
+            distribution_basis = "Status counts explicitly reported by the selected schedule source"
+
+    baseline_dates = [_iso_day(row.get("baseline_finish")) for row in activities]
+    baseline_dates = [value for value in baseline_dates if value]
+    planned_dates = [_iso_day(row.get("finish")) for row in activities]
+    planned_dates = [value for value in planned_dates if value]
+    reference_dates = baseline_dates or planned_dates
+    reference_label = ("Baseline/reference finishes" if baseline_dates
+                       else "Current planned finishes")
+    recorded_dates = [_iso_day(row.get("actual_finish")) for row in activities]
+    recorded_dates = [value for value in recorded_dates if value]
+    verified_rows = db.q(
+        "SELECT activity_uid,MIN(event_date) event_date FROM execution_events "
+        "WHERE project_id=? AND event_state='finish' AND state='confirmed' "
+        "AND activity_uid IS NOT NULL GROUP BY activity_uid", [pid])
+    verified_dates = [_iso_day(row.get("event_date")) for row in verified_rows]
+    verified_dates = [value for value in verified_dates if value]
+    all_dates = reference_dates + recorded_dates + verified_dates
+    periods: list[date] = []
+    if all_dates:
+        first, last = min(all_dates), max(all_dates)
+        cursor = date(first.year, first.month, 1)
+        last_month = date(last.year, last.month, 1)
+        while cursor <= last_month:
+            periods.append(date(cursor.year, cursor.month,
+                                calendar.monthrange(cursor.year, cursor.month)[1]))
+            cursor = (date(cursor.year + 1, 1, 1) if cursor.month == 12
+                      else date(cursor.year, cursor.month + 1, 1))
+        if len(periods) > 18:
+            stride = (len(periods) + 16) // 17
+            reduced = periods[::stride]
+            if reduced[-1] != periods[-1]:
+                reduced.append(periods[-1])
+            periods = reduced
+
+    denominator = max(1, len(activities))
+    recorded_cutoff = _iso_day((snap or {}).get("status_date") or
+                               (snap or {}).get("data_date"))
+    if recorded_cutoff is None and recorded_dates:
+        recorded_cutoff = max(recorded_dates)
+    verified_cutoff = max(verified_dates) if verified_dates else None
+
+    def pct(values: list[date], boundary: date) -> float:
+        return round(sum(1 for value in values if value <= boundary) * 100 / denominator, 1)
+
+    series = []
+    for period in periods:
+        month_start = period.replace(day=1)
+        recorded_boundary = min(period, recorded_cutoff) if recorded_cutoff else None
+        verified_boundary = min(period, verified_cutoff) if verified_cutoff else None
+        series.append({
+            "period": period.isoformat(),
+            "reference": pct(reference_dates, period) if reference_dates else None,
+            "recorded": (pct(recorded_dates, recorded_boundary)
+                         if recorded_boundary and month_start <= recorded_cutoff else None),
+            "field_verified": (pct(verified_dates, verified_boundary)
+                               if verified_boundary and month_start <= verified_cutoff else None),
+        })
+
+    return {
+        "activity_distribution": {
+            "available": bool(activities), "total": len(activities),
+            "counts": distribution,
+            "basis": distribution_basis,
+        },
+        "completion_trajectory": {
+            "available": bool(series), "series": series,
+            "reference_label": reference_label,
+            "denominator": len(activities),
+            "reference_coverage": len(reference_dates),
+            "recorded_finish_coverage": len(recorded_dates),
+            "verified_finish_coverage": len(verified_dates),
+            "recorded_cutoff": recorded_cutoff.isoformat() if recorded_cutoff else None,
+            "verified_cutoff": verified_cutoff.isoformat() if verified_cutoff else None,
+            "definition": ("Cumulative share of source activities with a finish by each date. "
+                           "This is a completion trajectory, not invented earned value."),
+        },
+    }
 
 
 # =====================================================================
@@ -135,8 +262,10 @@ def _counts_bundle(pid: str) -> dict:
     extra = (", (SELECT COUNT(*) FROM issues WHERE project_id=? AND status='open') AS open_issues"
              ", (SELECT COUNT(*) FROM risks WHERE project_id=? AND status='open') AS open_risks"
              ", (SELECT COUNT(*) FROM reviews WHERE project_id=? AND status='open') AS pending_reviews"
-             ", (SELECT COUNT(*) FROM proposals WHERE project_id=? AND approval_state='pending') AS pending_proposals")
-    params = [pid] * (len(_OVERVIEW_COUNT_TABLES) + 4)
+             ", (SELECT COUNT(*) FROM proposals WHERE project_id=? AND approval_state='pending') AS pending_proposals"
+             ", (SELECT COUNT(*) FROM hindrances WHERE project_id=? AND status IN ('open','monitoring')) AS open_hindrances"
+             ", (SELECT COUNT(*) FROM readiness_constraints WHERE project_id=? AND status IN ('open','in_progress')) AS open_constraints")
+    params = [pid] * (len(_OVERVIEW_COUNT_TABLES) + 6)
     row = db.q1("SELECT " + selects + extra, params) or {}
     return {k: int(v or 0) for k, v in row.items()}
 
@@ -358,6 +487,7 @@ def overview(pid: str):
         "reference_context": reference_context,
         "quality": quality,
         "field_context": field_context,
+        "control_insights": _control_room_insights(pid, snap),
         "counts": {
             "activities": int((snap or {}).get("task_count") or bundle["activities"]),
             "wbs": int((snap or {}).get("wbs_count") or bundle["wbs_nodes"]),
@@ -382,6 +512,8 @@ def overview(pid: str):
             "completed_late": completed_late_count,
             "pending_reviews": bundle["pending_reviews"],
             "pending_proposals": bundle["pending_proposals"],
+            "open_hindrances": bundle["open_hindrances"],
+            "open_constraints": bundle["open_constraints"],
             "unresolved_evidence": field_context.get("unresolved_record_count", 0),
             "deferred_evidence": field_context.get("deferred_record_count", 0),
         },
@@ -765,6 +897,21 @@ def activities(pid: str, q: str = "", wbs: str = "", status: str = "",
             "completed_late_evaluable": completed_late_evaluable}
 
 
+@router.get("/projects/{pid}/timeline")
+def schedule_timeline(pid: str, anchor: str = "", window: str = "90",
+                      q: str = "", wbs: str = "", critical: bool = False,
+                      blockers: bool = False,
+                      limit: int = Query(350, ge=1, le=500)):
+    """Source-faithful baseline/current/actual timeline with drill-down counts."""
+    _project_or_404(pid)
+    try:
+        return controls.timeline(pid, anchor=anchor or None, window=window,
+                                 query=q, wbs=wbs, critical=critical,
+                                 blockers=blockers, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 def _activity_counts(pid: str, uids: list) -> dict:
     if not uids:
         return {}
@@ -831,11 +978,23 @@ def activity_detail(pid: str, uid: int):
     obs = db.q1("SELECT * FROM observed_progress WHERE project_id=? "
                 "AND activity_uid=?", [pid, uid])
     ms = db.q1("SELECT * FROM milestones WHERE project_id=? AND uid=?", [pid, uid])
+    hindrances = [item for item in controls.list_hindrances(pid)
+                   if uid in (item.get("activity_uids") or [])]
+    readiness = [controls.shape_constraint(item) for item in db.q(
+        "SELECT * FROM readiness_constraints WHERE project_id=? AND activity_uid=? "
+        "ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,required_by",
+        [pid, uid])]
+    bim_identifiers = [controls.shape_bim(item) for item in db.q(
+        "SELECT * FROM bim_identifiers WHERE project_id=? AND activity_uid=? "
+        "ORDER BY identifier_type,identifier_value", [pid, uid])]
+    site_context = controls.list_site_context(pid, limit=30, activity_uid=uid)
     return {
         "activity": a, "predecessors": preds, "successors": succs,
         "assignments": assigns, "resources": resources,
         "evidence": grouped, "evidence_total": len(links),
         "issues": issues, "risks": risks, "proposals": props,
+        "hindrances": hindrances, "readiness_constraints": readiness,
+        "bim_identifiers": bim_identifiers, "site_context": site_context,
         "observed_progress": obs, "milestone": ms,
         "baseline": {"baseline_start": a.get("baseline_start"),
                      "baseline_finish": a.get("baseline_finish"),
@@ -1089,6 +1248,126 @@ def set_risk_status(pid: str, rid: str, body: dict = Body(...)):
                      previous_value=row.get("status"), new_value=new,
                      approval="human", result="ok")
     return {"ok": True}
+
+
+# =====================================================================
+#  Execution controls: hindrances, look-ahead readiness and BIM identity
+# =====================================================================
+@router.get("/projects/{pid}/execution-controls")
+def execution_controls(pid: str, days: int = Query(42, ge=7, le=180),
+                       anchor: str = ""):
+    _project_or_404(pid)
+    lookahead = controls.lookahead(pid, anchor=anchor or None, days=days)
+    hindrances = controls.list_hindrances(pid)
+    context = controls.list_site_context(pid, limit=120)
+    bim = controls.list_bim_identifiers(pid)
+    new_scope = controls.new_scope_events(pid)
+    return {
+        "lookahead": lookahead,
+        "hindrances": hindrances,
+        "site_context": context,
+        "bim_identifiers": bim,
+        "new_scope_events": new_scope,
+        "counts": {
+            "open_hindrances": sum(1 for item in hindrances
+                                     if item.get("status") in {"open", "monitoring"}),
+            "open_constraints": int((db.q1(
+                "SELECT COUNT(*) c FROM readiness_constraints WHERE project_id=? "
+                "AND status IN ('open','in_progress')", [pid]) or {}).get("c", 0)),
+            "bim_links": sum(1 for item in bim if item.get("status") == "confirmed"),
+            "new_scope_waiting": len(new_scope),
+        },
+    }
+
+
+def _control_actor(body: dict) -> str:
+    return str(body.get("by") or body.get("created_by") or "project.controls").strip()[:120]
+
+
+@router.post("/projects/{pid}/hindrances")
+def create_hindrance(pid: str, body: dict = Body(...)):
+    _project_or_404(pid)
+    try:
+        result = controls.create_hindrance(pid, body, actor=_control_actor(body))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    events.emit("execution_control_changed", pid, {"kind": "hindrance", "id": result["id"]}, source="human")
+    return {"ok": True, "hindrance": result}
+
+
+@router.post("/projects/{pid}/hindrances/{hindrance_id}/status")
+def update_hindrance(pid: str, hindrance_id: str, body: dict = Body(...)):
+    try:
+        result = controls.update_hindrance(pid, hindrance_id, body,
+                                            actor=_control_actor(body))
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    events.emit("execution_control_changed", pid, {"kind": "hindrance", "id": hindrance_id}, source="human")
+    return {"ok": True, "hindrance": result}
+
+
+@router.post("/projects/{pid}/readiness-constraints")
+def create_readiness_constraint(pid: str, body: dict = Body(...)):
+    _project_or_404(pid)
+    try:
+        result = controls.create_constraint(pid, body, actor=_control_actor(body))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    events.emit("execution_control_changed", pid, {"kind": "readiness", "id": result["id"]}, source="human")
+    return {"ok": True, "constraint": result}
+
+
+@router.post("/projects/{pid}/readiness-constraints/{constraint_id}/status")
+def update_readiness_constraint(pid: str, constraint_id: str,
+                                body: dict = Body(...)):
+    try:
+        result = controls.update_constraint(pid, constraint_id, body,
+                                             actor=_control_actor(body))
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    events.emit("execution_control_changed", pid, {"kind": "readiness", "id": constraint_id}, source="human")
+    return {"ok": True, "constraint": result}
+
+
+@router.post("/projects/{pid}/site-context")
+def create_site_context(pid: str, body: dict = Body(...)):
+    _project_or_404(pid)
+    try:
+        result = controls.create_site_context(pid, body, actor=_control_actor(body))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    events.emit("execution_control_changed", pid, {"kind": "site_context", "id": result["id"]}, source="human")
+    return {"ok": True, "site_context": result}
+
+
+@router.post("/projects/{pid}/bim-identifiers")
+def create_bim_identifier(pid: str, body: dict = Body(...)):
+    _project_or_404(pid)
+    try:
+        result = controls.create_bim_identifier(pid, body, actor=_control_actor(body))
+    except controls.BIMIdentityConflict as exc:
+        # The conflicting binding is durable and must be resolved deliberately.
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    events.emit("execution_control_changed", pid, {"kind": "bim_identifier", "id": result["id"]}, source="human")
+    return {"ok": True, "bim_identifier": result}
+
+
+@router.post("/projects/{pid}/new-activity-suggestions")
+def create_new_activity_suggestion(pid: str, body: dict = Body(...)):
+    _project_or_404(pid)
+    try:
+        result = controls.suggest_new_activity(pid, body, actor=_control_actor(body))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    events.emit("execution_control_changed", pid, {"kind": "new_activity_proposal", "id": result["id"]}, source="human")
+    return {"ok": True, "proposal": result,
+            "message": "Suggestion recorded. The schedule is unchanged until dry-run, approval and verified execution."}
 
 
 # =====================================================================
@@ -1674,10 +1953,10 @@ def _agent_inbox_payload(item: dict) -> dict:
 
 
 @router.post("/projects/{pid}/field-captures/interpret")
-def interpret_field_capture(pid: str, body: dict = Body(...)):
+async def interpret_field_capture(pid: str, body: dict = Body(...)):
     _project_or_404(pid)
     try:
-        return field_capture.interpret(pid, body)
+        return await field_capture.interpret_adaptive(pid, body)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
