@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "result": {
+    "count": 1,
+    "findings": [
+      {
+        "code": "dcma_01_logic",
+        "title": "Missing logic",
+        "category": "DCMA 14-point",
+        "status": "fail",
+        "severity": "warning",
+        "detail": "Missing logic — 3 of 22 activities (13.6%) have no predecessor or no successor in the source predecessor network (threshold 5%).",
+        "actual": "13.6",
+        "threshold": "5.0",
+        "count": 3,
+        "task_uids": [
+          1,
+          10,
+          22
+        ]
+      }
+    ],
+    "note": "Produced by Horizun schedule_qa and source-semantic guards. Not-evaluated checks are intentionally not passed."
+  }
+}

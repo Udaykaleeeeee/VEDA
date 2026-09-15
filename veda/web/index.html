@@ -15,7 +15,7 @@
   document.documentElement.dataset.theme = saved || system;
 })();
 </script>
-<link rel="stylesheet" href="/static/app.css?v=1.57">
+<link rel="stylesheet" href="/static/app.css?v=1.59">
 </head>
 <body>
 <div id="app">
@@ -47,14 +47,19 @@
     <div class="account-shell" id="account-shell">
       <button class="account-trigger" id="profile-toggle" type="button" aria-haspopup="menu"
               aria-expanded="false" aria-controls="profile-menu">
-        <span class="account-avatar" aria-hidden="true">PC</span>
-        <span class="account-copy"><b>Project Controls</b><small>Local workspace</small></span>
+        <span class="account-avatar" id="account-avatar" aria-hidden="true">PC</span>
+        <span class="account-copy"><b id="account-name">Project Controls</b><small id="account-workspace">Supervisor workspace</small></span>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
       </button>
       <div class="account-menu" id="profile-menu" role="menu" hidden>
-        <div class="account-menu-head"><span class="account-avatar">PC</span><div><b>Project Controls</b><small>Planner workspace</small></div></div>
-        <button type="button" role="menuitem" data-profile-go="system"><span>System &amp; integrations</span><small>Providers, bridge and health</small></button>
-        <button type="button" role="menuitem" data-profile-go="anywhere"><span>Connected devices</span><small>VEDA Anywhere access</small></button>
+        <div class="account-menu-head"><span class="account-avatar" id="account-menu-avatar">PC</span><div><b id="account-menu-name">Project Controls</b><small id="account-menu-workspace">Supervisor workspace</small></div></div>
+        <div class="persona-switch" aria-label="Switch workspace role">
+          <span>View as</span>
+          <div><button type="button" data-role-switch="supervisor"><b>Supervisor</b><small>Controls &amp; approvals</small></button>
+          <button type="button" data-role-switch="worker"><b>Site worker</b><small>Capture &amp; submit</small></button></div>
+        </div>
+        <button type="button" role="menuitem" data-profile-go="system" data-supervisor-only><span>System &amp; integrations</span><small>Providers, bridge and health</small></button>
+        <button type="button" role="menuitem" data-profile-go="anywhere" data-supervisor-only><span>Connected devices</span><small>VEDA Anywhere access</small></button>
       </div>
     </div>
     <!-- Reasoning-provider and Horizun/MCP health are diagnostics, not
@@ -66,9 +71,9 @@
   <main class="main" id="main"></main>
 </div>
 <div class="toasts" id="toasts"></div>
-<script src="/static/views.js?v=1.57"></script>
-<script src="/static/vision-tracker.js?v=1.57"></script>
-<script src="/static/field-capture.js?v=1.57"></script>
-<script src="/static/app.js?v=1.57"></script>
+<script src="/static/views.js?v=1.59"></script>
+<script src="/static/vision-tracker.js?v=1.59"></script>
+<script src="/static/field-capture.js?v=1.59"></script>
+<script src="/static/app.js?v=1.59"></script>
 </body>
 </html>

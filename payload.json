@@ -1,0 +1,42 @@
+{
+  "inbox_id": "e977763bde1f4e61",
+  "result": {
+    "summary": "Project gtrfwde schedule contains 22 activities and has a recorded progress of 32.0%. A Daily Construction Report indicates progress on 'Formworks first floor slab' matching the schedule's 60% completion. However, the date on the report (10.03.2017) contradicts the schedule's actual start dates (September 2017). Additionally, the schedule failed a logic quality check.",
+    "schedule_findings": [
+      {
+        "finding": "Missing logic - 3 of 22 activities (13.6%) have no predecessor or successor.",
+        "provenance": "MCP_FACT"
+      },
+      {
+        "finding": "Recorded schedule progress is 32.0%.",
+        "provenance": "MCP_FACT"
+      }
+    ],
+    "evidence": [],
+    "evidence_links": [
+      {
+        "evidence_ref": "0222d4589d8e4727",
+        "activity_uid": 7,
+        "provenance": "AI_INFERENCE"
+      }
+    ],
+    "issues": [
+      {
+        "description": "Schedule dates contradict field evidence: DCR 218 is dated 10.03.2017 and reports 60% progress on the first floor slab, but the schedule records the actual start for this activity (P218-STR-Z3-060) as 2017-09-27.",
+        "provenance": "AI_INFERENCE"
+      }
+    ],
+    "risks": [],
+    "review_questions": [
+      {
+        "cluster_key": "report_date_vs_schedule_dates",
+        "question": "Does the report date '10.03.2017' refer to March 10 or October 3? Both interpretations conflict with the schedule dates (e.g. actual start 2017-09-27) or the day of the week ('Sun'). Please verify the report date and schedule alignment.",
+        "affected_evidence_refs": ["0222d4589d8e4727"]
+      }
+    ],
+    "change_proposals": [],
+    "artifacts": [],
+    "notes": []
+  },
+  "events": []
+}

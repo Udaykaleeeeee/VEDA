@@ -165,10 +165,85 @@ VIEWS.noproject = () =>
   'and <a class="link" onclick="go(\'system\')">System / MCP</a> — do not need a project.</p>' +
   '</div></div>';
 
+VIEWS.worker_noproject = () =>
+  '<div class="worker-empty-state"><span class="worker-role-chip">SITE WORKER</span>' +
+  '<h1>No project assigned</h1><p>Ask your supervisor to prepare a project before sending a field update.</p>' +
+  '<small>Your capture tools will appear here as soon as a project is available.</small></div>';
+
+const workerMode = () => Boolean(window.vedaRole && window.vedaRole() === 'worker');
+
+function workerSubmissionCards(captures, limit) {
+  const rows = (captures || []).slice(0, limit || 6);
+  if (!rows.length) return empty('No updates sent yet',
+    'Your voice notes, photos and videos will appear here after you submit them.');
+  return '<div class="worker-submission-list">' + rows.map(c => {
+    const detail = [c.activity_display_id, c.activity_name].filter(Boolean).join(' · ');
+    const status = c.status === 'proposal_ready' ? ['Received', 'green'] :
+      c.status === 'needs_activity' ? ['Planner linking', 'amber'] :
+      c.status === 'conflict' ? ['Needs clarification', 'red'] : ['Saved', 'blue'];
+    return '<article><div class="worker-submission-icon">✓</div><div><header><b>' +
+      E(detail || 'Site observation') + '</b>' + tagFor(status[0], {[status[0].toLowerCase()]: status[1]}) +
+      '</header><p>' + E(c.confirmed_text || '') + '</p><footer><span>' +
+      E(c.reporter || 'Field reporter') + '</span><span>' + E(day(c.occurred_at)) + '</span>' +
+      ((c.media_file_ids || []).length ? '<span>' + int(c.media_file_ids.length) + ' attachment(s)</span>' : '') +
+      '</footer></div></article>';
+  }).join('') + '</div>';
+}
+
+VIEWS['worker-home'] = async (pid) => {
+  const [projectData, captureData] = await Promise.all([
+    A('/projects/' + pid + '/overview'), A('/projects/' + pid + '/field-captures?limit=5')
+  ]);
+  const project = projectData.project || {};
+  const schedule = projectData.schedule || {};
+  const captures = (captureData.captures || []).filter(c =>
+    String(c.reporter || '').toLowerCase().startsWith('r. dutta'));
+  return '<section class="worker-home">' +
+    '<header class="worker-welcome"><div><span class="worker-role-chip">SITE WORKER · PIPING CREW</span>' +
+      '<h1>Good morning, R. Dutta</h1><p>' + E(project.name || 'Current project') +
+      (project.location ? ' · ' + E(project.location) : '') + '</p></div>' +
+      '<div class="worker-sync-state"><i></i><span><b>Connected</b><small>Updates go straight to Project Controls</small></span></div></header>' +
+    '<div class="worker-action-grid">' +
+      '<button class="worker-primary-action" type="button" onclick="go(\'capture\')"><span>＋</span><div><b>Send site update</b>' +
+        '<small>Speak, type, photograph or record the workfront</small></div><i>→</i></button>' +
+      '<button type="button" onclick="go(\'capture\')"><span>●</span><div><b>Record a voice note</b><small>VEDA creates an editable event card</small></div><i>→</i></button>' +
+      '<button type="button" onclick="go(\'worker-submissions\')"><span>✓</span><div><b>Check my submissions</b><small>' +
+        int(captures.length) + ' recent update(s) available</small></div><i>→</i></button>' +
+    '</div>' +
+    '<div class="worker-context-grid"><section class="worker-shift-card"><header><div><span>MY SHIFT</span><h2>Field reporting brief</h2></div>' +
+      '<time>' + (schedule.data_date ? day(schedule.data_date) : 'Today') + '</time></header>' +
+      '<div class="worker-brief-steps"><div><i>1</i><span><b>Observe</b><small>Capture only work you personally saw</small></span></div>' +
+      '<div><i>2</i><span><b>Confirm</b><small>Correct names, quantities and activity IDs</small></span></div>' +
+      '<div><i>3</i><span><b>Submit</b><small>Project Controls reviews every schedule proposal</small></span></div></div>' +
+      '<footer><span>Offline safe</span><span>Original media retained</span><span>No direct P6 write</span></footer></section>' +
+      '<section class="worker-help-card"><span>NEED HELP?</span><h2>Ask about today’s work</h2>' +
+      '<p>Use plain English, Hindi or Hinglish. Ask for an activity ID, what to report, or what information is missing.</p>' +
+      '<button class="btn" type="button" onclick="go(\'ask\')">Ask VEDA</button></section></div>' +
+    '<section class="worker-recent"><header><div><span>FIELD → OFFICE HANDOFF</span><h2>Recent site submissions</h2></div>' +
+      '<button class="link" type="button" onclick="go(\'worker-submissions\')">View all →</button></header>' +
+      workerSubmissionCards(captures, 3) + '</section></section>';
+};
+
+VIEWS['worker-submissions'] = async (pid) => {
+  const response = await A('/projects/' + pid + '/field-captures?limit=50');
+  const captures = (response.captures || []).filter(c =>
+    String(c.reporter || '').toLowerCase().startsWith('r. dutta'));
+  return head('My submissions', 'Field updates sent to Project Controls',
+    '<span class="tag green">' + int(captures.length) + ' received</span>' +
+    '<button class="btn primary" type="button" onclick="go(\'capture\')">Send new update</button>') +
+    '<div class="worker-submission-summary"><div><b>' + int(captures.length) + '</b><span>Submitted</span></div>' +
+      '<div><b>' + int(captures.filter(c => c.status === 'proposal_ready').length) + '</b><span>Ready for review</span></div>' +
+      '<div><b>' + int(captures.filter(c => c.status === 'needs_activity').length) + '</b><span>Planner linking</span></div></div>' +
+    '<section class="worker-recent worker-all-submissions"><header><div><span>DURABLE HANDOFF</span>' +
+      '<h2>Submission history</h2></div><small>Original evidence and corrections stay auditable</small></header>' +
+      workerSubmissionCards(captures, 50) + '</section>';
+};
+
 /* ===================================================== Field capture */
 VIEWS.capture = async (pid) => {
   const r = await A('/projects/' + pid + '/field-captures?limit=30');
-  const captures = r.captures || [];
+  const captures = workerMode() ? (r.captures || []).filter(c =>
+    String(c.reporter || '').toLowerCase().startsWith('r. dutta')) : (r.captures || []);
   const recent = captures.length ? captures.map(c => {
     const statusMap = { proposal_ready: 'green', confirmed_no_change: 'green',
       needs_activity: 'amber', conflict: 'red' };
@@ -192,10 +267,17 @@ VIEWS.capture = async (pid) => {
   }).join('') : empty('No field updates yet',
     'The first confirmed update will appear here with its activity link and proposal state.');
 
-  return head('Field capture', 'Fast on site · confirmed by a person · safe offline',
-    '<span class="tag blue">Site reporter workspace</span>' +
-    '<button class="btn sm" onclick="go(\'files\')">Files</button>' +
-    '<button class="btn sm" onclick="go(\'proposals\')">Edit proposals</button>') +
+  const isWorker = workerMode();
+  return head(isWorker ? 'Send site update' : 'Field capture',
+    isWorker ? 'Speak, type, photograph or record · confirm before sending' :
+      'Fast on site · confirmed by a person · safe offline',
+    isWorker ? '<span class="tag green">Connected to supervisor</span>' :
+      '<span class="tag blue">Site reporter workspace</span>' +
+      '<button class="btn sm" onclick="go(\'files\')">Files</button>' +
+      '<button class="btn sm" onclick="go(\'proposals\')">Edit proposals</button>') +
+    '<div class="worker-capture-handoff"><i></i><div><b>Project Controls is connected</b>' +
+      '<span>Your confirmed update will appear in the supervisor’s review workflow immediately.</span></div>' +
+      '<small>FIELD → OFFICE</small></div>' +
     '<div class="capture-status-row"><div class="capture-connectivity" id="capture-connectivity">Checking connection…</div>' +
     '<div class="capture-outbox">Saved on device <b id="capture-outbox-count">0</b>' +
     '<button class="btn sm" id="capture-sync-now">Sync now</button></div></div>' +
@@ -204,13 +286,15 @@ VIEWS.capture = async (pid) => {
       '<div class="capture-section capture-source-section"><div class="capture-step"><span>1</span><div><b>Tell VEDA what happened</b>' +
       '<small>Speak naturally or type a note. VEDA turns it into an editable event card.</small></div></div>' +
       '<div class="capture-action-grid"><button class="capture-action voice" id="capture-voice" type="button"><i>●</i><b>Record voice</b><small>Audio is kept as evidence</small></button>' +
+      '<button class="capture-action worker-only" id="capture-media-upload" type="button"><i>↑</i><b>Add photo or video</b><small>Choose existing site media</small></button>' +
+      '<button class="capture-action worker-only" id="capture-video-record" type="button"><i>◉</i><b>Record site video</b><small>Open this device’s camera</small></button>' +
       '<button class="capture-action cctv" id="capture-cctv" type="button" aria-expanded="false" aria-controls="capture-cctv-panel"><i>▶</i><b>Review CCTV</b><small>Inspect footage and draft progress</small></button></div>' +
       '<section class="cctv-workstation" id="capture-cctv-panel" hidden aria-label="CCTV progress review workstation">' +
         '<header class="cctv-head"><div><span class="cctv-kicker"><i></i> LOCAL CAMERA · DEMO REVIEW</span>' +
         '<h3>Site Vision Review</h3><p>Pause, rewind, jump to an observation, then verify the AI draft before it becomes field evidence.</p></div>' +
         '<button class="cctv-close" id="capture-cctv-close" type="button" aria-label="Close CCTV review">×</button></header>' +
         '<div class="cctv-grid"><div class="cctv-feed-column"><div class="cctv-feed">' +
-          '<video id="capture-cctv-player" title="Local site camera footage" src="/static/staticcams/CCTV_2.mp4" controls muted playsinline preload="metadata"></video>' +
+          '<video id="capture-cctv-player" title="Local site camera footage" src="/static/staticcams/CCTV_2.mp4" controls autoplay muted playsinline preload="metadata"></video>' +
           '<div class="site-vision-box-layer" id="capture-cctv-boxes" aria-hidden="true"><i class="vision-scan-line"></i></div>' +
           '<div class="cctv-feed-meta"><span><i></i> AI TRACKING</span><b id="capture-cctv-camera-label">Pipe laydown yard · CAM-03</b><time id="capture-cctv-clock">Frame 00:53</time></div>' +
         '</div><div class="cctv-feed-toolbar"><label><span>Demo camera</span><select class="inp" id="capture-cctv-camera">' +
@@ -236,7 +320,8 @@ VIEWS.capture = async (pid) => {
           '<p><b>Vision disclosure:</b> moving worker boxes use local pose detection and road vehicles use local object detection. Camera-calibrated labels and safety signals remain review candidates. The model does not detect pipe completion or measure progress. Saving creates an editable, auditable field draft only.</p>' +
         '</aside></div>' +
       '</section>' +
-      '<input type="file" id="capture-photo-file" accept="image/*" capture="environment" multiple hidden>' +
+      '<input type="file" id="capture-photo-file" accept="image/*,video/*" multiple hidden>' +
+      '<input type="file" id="capture-video-file" accept="video/*" capture="environment" hidden>' +
       '<input type="file" id="capture-audio-file" accept="audio/*" capture hidden>' +
       '<div id="capture-media-tray" class="capture-media-tray"></div>' +
       '<div class="capture-mic-row"><label><span>Microphone input</span>' +
@@ -269,7 +354,9 @@ VIEWS.capture = async (pid) => {
         '<label class="capture-event-option"><input type="radio" name="capture-event" value="finish"><span><b>Finished</b><small>Scope is complete</small></span></label>' +
       '</div><div class="capture-fields-two"><label><span>When observed</span>' +
       '<input class="inp" id="capture-occurred" type="datetime-local"></label>' +
-      '<label><span>Your name / crew</span><input class="inp" id="capture-reporter" placeholder="e.g. S. Kumar · Piping A"></label></div>' +
+      '<label><span>Your name / crew</span><input class="inp" id="capture-reporter" ' +
+      (isWorker ? 'value="R. Dutta · Piping crew" ' : '') +
+      'placeholder="e.g. S. Kumar · Piping A"></label></div>' +
       '<div class="capture-fields-two" id="capture-progress-fields"><label><span>Measured progress % <em>optional</em></span>' +
       '<input class="inp" id="capture-progress" type="number" min="0" max="100" step="0.1" inputmode="decimal" placeholder="e.g. 65"></label>' +
       '<label><span>Remaining working days <em>optional</em></span><input class="inp" id="capture-remaining" type="number" min="0" step="0.5" inputmode="decimal" placeholder="Only if explicitly known"></label></div>' +
@@ -290,9 +377,12 @@ VIEWS.capture = async (pid) => {
       '<small>VEDA uses these exact words; a transcript is never accepted silently.</small></div></div>' +
       '<div class="capture-confirm-badge"><i>✓</i><span><b>Human confirmation</b><small>The corrected transcript and every extracted field stay editable until you save.</small></span></div>' +
       '<div class="capture-policy"><span>Evidence saved</span><i>→</i><span>Activity identity</span><i>→</i><span>Proposal only</span><i>→</i><span>Planner approval</span></div>' +
-      '<button class="btn primary capture-save" id="capture-save" type="button">Confirm & save update</button>' +
-      '<p class="capture-safety">Saving never writes to Primavera. If an official value differs, VEDA holds the conflict for a planner.</p></div>' +
-    '</section><aside class="capture-history">' + panel('Recent field updates <small>' + captures.length + '</small>',
+      '<button class="btn primary capture-save" id="capture-save" type="button">' +
+      (isWorker ? 'Submit to Project Controls' : 'Confirm & save update') + '</button>' +
+      '<p class="capture-safety">' + (isWorker
+        ? 'Your supervisor receives an evidence-backed draft. You cannot change Primavera or approve schedule values.'
+        : 'Saving never writes to Primavera. If an official value differs, VEDA holds the conflict for a planner.') + '</p></div>' +
+    '</section><aside class="capture-history">' + panel((isWorker ? 'Recent submissions' : 'Recent field updates') + ' <small>' + captures.length + '</small>',
       '<div class="capture-history-list">' + recent + '</div>') + '</aside></div>';
 };
 VIEWS.bind_capture = (pid) => {
@@ -312,7 +402,7 @@ function siteVisionDashboard() {
 
     '<div class="site-vision-pane" data-site-vision-pane="cameras">' +
       '<div class="site-vision-grid"><div class="site-vision-stage"><div class="site-vision-video-shell">' +
-        '<video id="site-camera-video" src="/static/staticcams/CCTV_2.mp4" controls muted playsinline preload="metadata"></video>' +
+        '<video id="site-camera-video" src="/static/staticcams/CCTV_2.mp4" controls autoplay muted playsinline preload="metadata"></video>' +
         '<div class="site-vision-box-layer" id="site-camera-boxes" aria-hidden="true"><i class="vision-scan-line"></i>' +
         '</div><div class="site-camera-hud"><span><i></i> AI TRACKING</span><b id="site-camera-hud-label">Pipe laydown yard · CAM-03</b>' +
         '<time id="site-camera-time">Frame 00:53</time></div>' +
@@ -343,10 +433,10 @@ function siteVisionDashboard() {
 
     '<div class="site-vision-pane" data-site-vision-pane="uploads" hidden>' +
       '<div class="site-vision-grid"><div class="site-vision-stage"><div class="site-vision-video-shell worker-upload-video">' +
-        '<video id="site-worker-video" src="/static/staticcams/LiveCamera_1.mp4" controls playsinline preload="metadata"></video>' +
+        '<video id="site-worker-video" src="/static/staticcams/LiveCamera_1.mp4" controls autoplay muted playsinline preload="metadata"></video>' +
         '<div class="site-vision-box-layer" id="site-worker-boxes" hidden aria-hidden="true"><i class="vision-scan-line"></i>' +
         '</div><div class="site-camera-hud upload"><span><i></i> WORKER UPLOAD</span><b>Field walk-through · Duliajan</b><time>06:24</time></div>' +
-      '</div><div class="site-vision-playerbar"><span>Uploaded by R. Dutta · Piping crew · Today 06:42</span>' +
+      '</div><div class="site-vision-playerbar"><span>Uploaded by R. Dutta · Piping crew · Today 06:42 · starts muted</span>' +
         '<div><a class="link" href="/static/staticcams/LiveCamera_1.mp4" download>Download</a>' +
         '<button class="link" id="site-worker-share" type="button">Share</button></div></div></div>' +
       '<aside class="site-vision-inspector worker"><div class="worker-upload-state"><span><i></i> READY FOR SUPERVISOR REVIEW</span><small>Stored locally · original retained</small></div>' +
@@ -365,9 +455,26 @@ function siteVisionDashboard() {
   '</section>';
 }
 
+function supervisorFieldHandoff(captures) {
+  const rows = (captures || []).slice(0, 3);
+  if (!rows.length) return '';
+  return '<section class="supervisor-handoff"><header><div><span><i></i> LIVE FIELD HANDOFF</span>' +
+    '<h2>Updates from site crews</h2></div><button class="link" type="button" onclick="go(\'capture\')">Open field inbox →</button></header>' +
+    '<div>' + rows.map(c => {
+      const detail = [c.activity_display_id, c.activity_name].filter(Boolean).join(' · ');
+      return '<article><div><b>' + E(detail || 'Unlinked site observation') + '</b><small>' +
+        E(c.reporter || 'Field reporter') + ' · ' + E(day(c.occurred_at)) + '</small></div><p>' +
+        E(c.confirmed_text || '') + '</p><span>' +
+        ((c.media_file_ids || []).length ? int(c.media_file_ids.length) + ' media' : 'Text update') + '</span></article>';
+    }).join('') + '</div><footer>Worker submissions become immutable field evidence; schedule changes remain proposals until supervisor approval.</footer></section>';
+}
+
 /* ===================================================== 1. overview */
 VIEWS.overview = async (pid) => {
-  const o = await A('/projects/' + pid + '/overview');
+  const [o, captureData] = await Promise.all([
+    A('/projects/' + pid + '/overview'), A('/projects/' + pid + '/field-captures?limit=3')
+  ]);
+  const fieldCaptures = captureData.captures || [];
   const s = o.schedule, ev = o.earned_value, c = o.counts;
   const f = o.field_context || {};
   const insights = o.control_insights || {};
@@ -453,6 +560,7 @@ VIEWS.overview = async (pid) => {
       '<div><span>Validated actuals coverage</span><b>' + int(f.validated_activity_count || 0) +
         '</b><small>activities with trusted evidence</small></div>' +
     '</div>' +
+    supervisorFieldHandoff(fieldCaptures) +
     '<section class="intervention-panel"><header><div><div class="eyebrow">Intervention queue</div>' +
       '<h2>' + (interventions.length ? 'What needs attention now' : 'No immediate intervention') +
       '</h2></div><span>' + latestFieldDate + ' latest field date</span></header>' +
@@ -634,6 +742,14 @@ VIEWS.bind_overview = (pid) => {
     return String(Math.floor(whole / 60)).padStart(2, '0') + ':' +
       String(whole % 60).padStart(2, '0');
   };
+  const playMuted = video => {
+    if (!video) return;
+    video.muted = true;
+    const attempt = video.play();
+    if (attempt && attempt.catch) attempt.catch(() => {
+      /* Autoplay can still be blocked by a browser setting; controls remain available. */
+    });
+  };
   const detectionMarkup = detections => {
     if (!detections.length) return '<div class="vision-detection-empty">No supported object detected at this frame</div>';
     const detail = item => {
@@ -684,6 +800,7 @@ VIEWS.bind_overview = (pid) => {
     const seek = () => {
       if (Number.isFinite(video.duration) && video.duration > 0)
         video.currentTime = Math.min(seconds, Math.max(0, video.duration - .25));
+      playMuted(video);
     };
     if (video.readyState >= 1) seek();
     else video.addEventListener('loadedmetadata', seek, {once: true});
@@ -755,6 +872,7 @@ VIEWS.bind_overview = (pid) => {
     const feed = feeds[key] || feeds.yard;
     activeFeed = key in feeds ? key : 'yard';
     cameraVideo.pause();
+    cameraVideo.muted = true;
     cameraVideo.src = feed.src;
     cameraVideo.load();
     seekWhenReady(cameraVideo, feed.at);

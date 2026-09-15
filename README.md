@@ -70,6 +70,16 @@ an auditable record with a SHA-256 evidence hash. See
 
 ---
 
+## v0.4.3 — field-worker persona handoff
+
+v0.4.3 adds the session-scoped Site worker workspace for demo and field
+workflow validation. Workers can send editable voice, note, photo and video
+updates, track their own submissions, and see the connection to Project
+Controls. Supervisors retain schedule, risk, approval, analytics and system
+workspaces; new worker submissions surface in the Dashboard handoff stream.
+
+---
+
 ## v0.4.2 — execution controls and site-vision workspace
 
 v0.4.2 expands VEDA's planning-to-execution bridge with schedule timeline
@@ -84,6 +94,12 @@ temporal incident signals and auditable proposed observations while keeping all
 schedule updates behind the existing human-review and verification controls.
 Large camera footage and model weights remain local and are intentionally not
 stored in Git.
+
+The demo also includes a session-scoped **Site worker** persona. Workers get a
+small field-first workspace for voice, notes, photos and site-video submissions;
+Project Controls keeps schedule, risk, approval and analytics tools. A live
+field-to-office handoff makes a worker submission visible on the supervisor
+Dashboard while preserving the same durable evidence and proposal safeguards.
 
 ---
 

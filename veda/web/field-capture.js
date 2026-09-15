@@ -138,7 +138,7 @@
       '</span><small>' + Math.max(1, Math.round(file.blob.size / 1024)) +
       ' KB</small><button type="button" data-capture-remove="' + index +
       '" aria-label="Remove ' + escapeHtml(file.name) + '">×</button></div>').join('') :
-      '<div class="capture-media-empty">Photos and voice recordings will appear here.</div>';
+      '<div class="capture-media-empty">Voice recordings, photos and site videos will appear here.</div>';
     tray.querySelectorAll('[data-capture-remove]').forEach(button => button.onclick = () => {
       state.files.splice(Number(button.dataset.captureRemove), 1); drawFiles();
     });
@@ -212,6 +212,23 @@
     drawFiles();
   }
 
+  function isWorkerWorkspace() {
+    return Boolean(window.vedaRole && window.vedaRole() === 'worker');
+  }
+
+  function saveButtonLabel() {
+    return isWorkerWorkspace() ? 'Submit to Project Controls' : 'Confirm & save update';
+  }
+
+  function announceFieldHandoff(projectId, capture) {
+    try {
+      const channel = new BroadcastChannel('veda-field-handoff');
+      channel.postMessage({type: 'field-capture-created', projectId,
+        captureId: capture && capture.id, at: Date.now()});
+      channel.close();
+    } catch (_) { /* Same-page role switching still reads the durable record. */ }
+  }
+
   function eventState() {
     return (document.querySelector('[name="capture-event"]:checked') || {}).value || 'progress';
   }
@@ -247,6 +264,21 @@
       else player.addEventListener('loadedmetadata', seek, {once: true});
     }
     if (func === 'pauseVideo') player.pause();
+  }
+
+  function autoplayCctv(video, seconds) {
+    if (!video) return;
+    video.muted = true;
+    const start = () => {
+      if (Number.isFinite(seconds) && Number.isFinite(video.duration) && video.duration > 0)
+        video.currentTime = Math.min(seconds, Math.max(0, video.duration - .25));
+      const attempt = video.play();
+      if (attempt && attempt.catch) attempt.catch(() => {
+        /* Browser autoplay settings may still require one user gesture. */
+      });
+    };
+    if (video.readyState >= 1) start();
+    else video.addEventListener('loadedmetadata', start, {once: true});
   }
 
   function jumpToCctvFrame() {
@@ -315,7 +347,7 @@
     state.cctvFeed = key in CCTV_FEEDS ? key : 'yard';
     state.cctvObservation = feed.defaultObservation;
     const player = el('capture-cctv-player');
-    player.pause(); player.src = feed.src; player.load();
+    player.pause(); player.muted = true; player.src = feed.src; player.load();
     el('capture-cctv-camera-label').textContent = feed.label;
     el('capture-cctv-download').href = feed.src;
     bindCctvTracker(feed, player);
@@ -326,7 +358,8 @@
         escapeHtml(observation.label) + '</b><small>' + escapeHtml(observation.detail) +
         '</small></span><i>REVIEW</i>';
     });
-    renderCctvObservation(feed.defaultObservation, true);
+    renderCctvObservation(feed.defaultObservation, false);
+    autoplayCctv(player, feed.observations[feed.defaultObservation].seconds);
     setCctvMode('ai');
   }
 
@@ -338,6 +371,7 @@
     panel.hidden = false;
     if (button) button.setAttribute('aria-expanded', 'true');
     renderCctvObservation(state.cctvObservation, false);
+    autoplayCctv(player, player.currentTime || 0);
     panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   }
 
@@ -759,15 +793,18 @@
       try {
         const result = await send(item);
         const capture = result.capture || {};
-        window.toast(capture.status === 'proposal_ready'
+        window.toast(isWorkerWorkspace()
+          ? 'Update sent to Project Controls. You can track it in My submissions.'
+          : capture.status === 'proposal_ready'
           ? 'Saved. Governed actuals proposals are ready for planner review.'
           : capture.status === 'needs_activity'
             ? 'Saved. A planner still needs to link this update to an activity.'
             : 'Confirmed field update saved.', 'good');
+        announceFieldHandoff(projectId, capture);
         reset(); window.refreshCounts(); window.render(); return;
       } catch (error) {
         if (error.permanent) { window.toast(error.message, 'bad'); button.disabled = false;
-          button.textContent = 'Confirm & save update'; return; }
+          button.textContent = saveButtonLabel(); return; }
       }
     }
     await queue(item);
@@ -776,7 +813,7 @@
       if (registration.sync) { try { await registration.sync.register('veda-field-captures'); } catch (_) {} }
     }
     window.toast('Saved safely on this device. VEDA will sync it when online.', 'good');
-    reset(); await updateOutbox(projectId); button.disabled = false; button.textContent = 'Confirm & save update';
+    reset(); await updateOutbox(projectId); button.disabled = false; button.textContent = saveButtonLabel();
   }
 
   async function bind(projectId) {
@@ -806,6 +843,14 @@
     });
     renderCctvFeed(state.cctvFeed);
     el('capture-photo-file').onchange = (event) => { addInputFiles(event.target.files); event.target.value = ''; };
+    const mediaUpload = el('capture-media-upload');
+    if (mediaUpload) mediaUpload.onclick = () => el('capture-photo-file').click();
+    const videoRecord = el('capture-video-record');
+    if (videoRecord) videoRecord.onclick = () => el('capture-video-file').click();
+    const videoInput = el('capture-video-file');
+    if (videoInput) videoInput.onchange = (event) => {
+      addInputFiles(event.target.files); event.target.value = '';
+    };
     el('capture-audio-file').onchange = (event) => {
       if (event.target.files && event.target.files.length) markVoiceCaptured(
         'Audio attached. This browser did not provide a live transcript—type or paste the words below.');

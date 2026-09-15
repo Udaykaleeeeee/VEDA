@@ -3,6 +3,10 @@
 
 const S = {
   project: null, projects: [], view: 'overview', params: {},
+  role: (() => {
+    try { return sessionStorage.getItem('veda-workspace-role') === 'worker' ? 'worker' : 'supervisor'; }
+    catch (_) { return 'supervisor'; }
+  })(),
   counts: {}, health: null, es: null, streamProject: null, overview: null,
   agentCompletionTimer: null,
   agentWatchTimer: null, agentWatchProject: null, agentJobFingerprint: null,
@@ -59,7 +63,7 @@ const post = (p, body) => api(p, {
    Grouped by the responsibility model, not alphabetically: what the
    schedule says, what the field says, what needs a decision, and what
    the machinery is doing. */
-const NAV = [
+const SUPERVISOR_NAV = [
   ['Workspace', [
     ['capture', 'Capture field update'], ['files', 'Files'],
     ['proposals', 'Edit / proposed changes'],
@@ -90,8 +94,25 @@ const NAV = [
   ]],
 ];
 
+const WORKER_NAV = [
+  ['My work', [
+    ['worker-home', 'My shift'], ['capture', 'Send site update'],
+    ['worker-submissions', 'My submissions'],
+  ]],
+  ['Support', [
+    ['ask', 'Ask VEDA'],
+  ]],
+];
+
+const WORKER_VIEWS = new Set(['worker-home', 'capture', 'worker-submissions', 'ask']);
+const activeNavigation = () => S.role === 'worker' ? WORKER_NAV : SUPERVISOR_NAV;
+const allowedView = (view) => S.role !== 'worker' || WORKER_VIEWS.has(view);
+window.vedaRole = () => S.role;
+
 const NAV_ICONS = {
   capture: '<path d="M12 5v14M5 12h14"/>',
+  'worker-home': '<path d="M4 20V9l8-5 8 5v11M8 20v-6h8v6M9 9h6"/>',
+  'worker-submissions': '<path d="M5 3h11l3 3v15H5V3zM15 3v4h4M8 12l2 2 5-5M8 18h7"/>',
   files: '<path d="M3 7h7l2 2h9v10H3V7z"/>',
   proposals: '<path d="M4 18.5V20h1.5L17 8.5 15.5 7 4 18.5zM14 8.5l1.5 1.5M14.5 5.5l1-1a1.5 1.5 0 012 0l2 2a1.5 1.5 0 010 2l-1 1"/>',
   attention: '<path d="M4 5h16v14H4zM4 14h5l1.5 2h3L15 14h5"/>',
@@ -128,7 +149,7 @@ function navIcon(id) {
 }
 
 function currentNavLabel() {
-  for (const [, items] of NAV) {
+  for (const [, items] of activeNavigation()) {
     const item = items.find(([id]) => id === S.view);
     if (item) return item[1];
   }
@@ -146,7 +167,7 @@ function toast(msg, kind) {
 /* -------------------------------------------------------------- rail */
 function renderRail() {
   const c = S.counts || {};
-  $('#rail').innerHTML = NAV.map(([grp, items]) => (
+  $('#rail').innerHTML = activeNavigation().map(([grp, items]) => (
     '<section class="rail-group"><div class="grp"><span>' + grp + '</span></div>' +
     items.map(([id, label, key]) => {
       const n = key ? c[key] : undefined;
@@ -177,6 +198,7 @@ function renderRail() {
 }
 
 function go(view, params) {
+  if (!allowedView(view)) view = 'worker-home';
   if (S.view === 'ask' && view !== 'ask' && S.project && VIEWS.stopAskVoice) {
     VIEWS.stopAskVoice(S.project);
   }
@@ -206,7 +228,8 @@ async function render() {
   const renderView = S.view;
   if (!S.project && !PROJECT_OPTIONAL_VIEWS.has(renderView)) {
     document.body.classList.remove('ask-mode');
-    main.innerHTML = VIEWS.noproject();
+    main.innerHTML = S.role === 'worker' && VIEWS.worker_noproject
+      ? VIEWS.worker_noproject() : VIEWS.noproject();
     bindNoProject();
     syncAgentWatchdog();
     S.renderedView = 'noproject';
@@ -358,6 +381,51 @@ function toggleProfileMenu() {
   menu.hidden = !open;
   button.setAttribute('aria-expanded', String(open));
 }
+
+function syncPersonaShell() {
+  const worker = S.role === 'worker';
+  document.body.dataset.role = S.role;
+  const values = worker
+    ? {avatar: 'RD', name: 'R. Dutta', workspace: 'Site worker · Piping crew'}
+    : {avatar: 'PC', name: 'Project Controls', workspace: 'Supervisor workspace'};
+  for (const id of ['account-avatar', 'account-menu-avatar']) {
+    const node = $('#' + id); if (node) node.textContent = values.avatar;
+  }
+  for (const id of ['account-name', 'account-menu-name']) {
+    const node = $('#' + id); if (node) node.textContent = values.name;
+  }
+  for (const id of ['account-workspace', 'account-menu-workspace']) {
+    const node = $('#' + id); if (node) node.textContent = values.workspace;
+  }
+  document.querySelectorAll('[data-supervisor-only]').forEach(node => { node.hidden = worker; });
+  document.querySelectorAll('[data-role-switch]').forEach(button => {
+    const selected = button.dataset.roleSwitch === S.role;
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+  const ask = $('#quick-ask');
+  if (ask) ask.title = worker ? 'Ask about today’s work' : 'Ask VEDA';
+  const projectPicker = $('#projpick');
+  if (projectPicker) {
+    projectPicker.disabled = worker;
+    projectPicker.title = worker ? 'Project assigned by your supervisor' : 'Choose current project';
+  }
+}
+
+function switchRole(nextRole) {
+  const next = nextRole === 'worker' ? 'worker' : 'supervisor';
+  if (next === S.role) { closeProfileMenu(); return; }
+  const captureBusy = S.view === 'capture' && window.FieldCapture &&
+    window.FieldCapture.hasUnsavedState();
+  if (captureBusy && !window.confirm('Switch workspaces and discard the unsaved field draft?')) return;
+  S.role = next;
+  try { sessionStorage.setItem('veda-workspace-role', next); } catch (_) {}
+  syncPersonaShell();
+  S.renderedView = null; S.renderedProject = null;
+  go(next === 'worker' ? 'worker-home' : 'overview');
+  toast(next === 'worker' ? 'Site worker workspace ready' : 'Supervisor workspace ready', 'good');
+}
+window.switchVedaRole = switchRole;
 
 /* ------------------------------------------------------------ projects */
 async function loadProjects(selectId) {
@@ -735,7 +803,7 @@ function connectStream() {
     const siteVisionBusy = S.view === 'overview' && VIEWS.hasActiveSiteVision &&
       VIEWS.hasActiveSiteVision();
     if (!captureBusy && !siteVisionBusy && ['overview', 'controls', 'timeline', 'capture', 'attention', 'ask', 'evidence',
-      'outputs', 'observed', 'quality', 'activities', 'agent'].includes(S.view)) {
+      'outputs', 'observed', 'quality', 'activities', 'agent', 'worker-home', 'worker-submissions'].includes(S.view)) {
       render();
     }
   };
@@ -778,6 +846,7 @@ window.esc = esc;
 window.api = api; window.post = post; window.toast = toast;
 
 async function init() {
+  syncPersonaShell();
   restoreNavigationState();
   const navToggle = $('#nav-toggle');
   if (navToggle) navToggle.onclick = toggleNavigation;
@@ -789,6 +858,12 @@ async function init() {
   };
   $('#profile-menu').querySelectorAll('[data-profile-go]').forEach(button => {
     button.onclick = () => go(button.dataset.profileGo);
+  });
+  $('#profile-menu').querySelectorAll('[data-role-switch]').forEach(button => {
+    button.onclick = (event) => {
+      event.stopPropagation();
+      switchRole(button.dataset.roleSwitch);
+    };
   });
   document.addEventListener('click', (e) => {
     const shell = $('#account-shell');
@@ -832,6 +907,10 @@ async function init() {
   // project creation without needing a project to already exist.
   const consumeNewProjectHash = () => {
     if (location.hash.replace('#', '').split('/')[0] === 'new-project') {
+      if (S.role === 'worker') {
+        history.replaceState(null, '', location.pathname + location.search + '#worker-home');
+        return true;
+      }
       history.replaceState(null, '', location.pathname + location.search +
         (S.view ? '#' + S.view : ''));
       openNewProjectDialog();
@@ -842,14 +921,19 @@ async function init() {
 
   window.addEventListener('hashchange', () => {
     if (consumeNewProjectHash()) return;
-    const [v, id] = location.hash.replace('#', '').split('/');
+    let [v, id] = location.hash.replace('#', '').split('/');
+    if (v && !allowedView(v)) {
+      v = 'worker-home'; id = null;
+      history.replaceState(null, '', location.pathname + location.search + '#worker-home');
+    }
     if (S.view === 'ask' && v !== 'ask' && S.project && VIEWS.stopAskVoice) {
       VIEWS.stopAskVoice(S.project);
     }
     if (v && v !== S.view) { S.view = v; S.params = id ? { id: id } : {};
                              renderRail(); syncAgentWatchdog(); render(); }
   });
-  const [v, id] = location.hash.replace('#', '').split('/');
+  let [v, id] = location.hash.replace('#', '').split('/');
+  if (v && !allowedView(v)) { v = 'worker-home'; id = null; }
   if (v && v !== 'new-project') { S.view = v; S.params = id ? { id: id } : {}; }
   renderRail();
   await loadProjects();
@@ -861,6 +945,19 @@ async function init() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/service-worker.js').catch(() => {});
   }
+  try {
+    const handoffChannel = new BroadcastChannel('veda-field-handoff');
+    handoffChannel.onmessage = async (event) => {
+      const message = event.data || {};
+      if (message.type !== 'field-capture-created' || message.projectId !== S.project ||
+          S.role !== 'supervisor') return;
+      invalidateReads();
+      await refreshCounts();
+      if (['overview', 'capture', 'attention'].includes(S.view)) await render();
+      toast('New site update received from the worker workspace', 'good');
+    };
+    window._vedaHandoffChannel = handoffChannel;
+  } catch (_) { /* BroadcastChannel is a progressive real-time enhancement. */ }
   window.addEventListener('focus', () => {
     if (S.project) {
       refreshCounts().then(() => {

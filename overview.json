@@ -1,0 +1,80 @@
+{
+  "ok": true,
+  "result": {
+    "project": {
+      "id": "737e374d96c749e7",
+      "name": "vhbj",
+      "client": null,
+      "location": null,
+      "description": null,
+      "status": "active"
+    },
+    "schedule": {
+      "project_name": "Project_218_P6_Style_Activities.csv",
+      "data_date": null,
+      "status_date": null,
+      "planned_start": "2016-09-16",
+      "planned_finish": "2018-05-06",
+      "forecast_finish": null,
+      "baseline_finish": null,
+      "must_finish_by": null,
+      "forecast_basis": "not available in source",
+      "baseline_basis": null,
+      "criticality_basis": "not available in source",
+      "criticality_threshold_days": null,
+      "task_count": 22,
+      "wbs_count": 13,
+      "summary_activity_count": 0,
+      "loe_count": 0,
+      "milestone_count": 0,
+      "relationship_count": 25,
+      "resource_count": 0,
+      "critical_count": null,
+      "late_count": null,
+      "overdue_count": null,
+      "completed_late_count": null,
+      "percent_complete": 32.0,
+      "health_score": 75.0,
+      "revision": 1,
+      "source_path": "C:\\Users\\Red\\Downloads\\VEDA-main\\data\\projects\\737e374d96c749e7\\files\\Project_218_P6_Style_Activities.csv",
+      "horizun_capabilities": {
+        "read_schedule": true,
+        "read_multiformat": true,
+        "write_mspdi": true,
+        "schedule_qa": true,
+        "timephased": true,
+        "recalculate": true,
+        "dry_run_simulation": true,
+        "reschedule_incomplete": true,
+        "critical_path_test": true,
+        "write_native_mpp": false,
+        "level_resources": false,
+        "native_engine": false
+      }
+    },
+    "earned_value": null,
+    "counts": {
+      "activities": 22,
+      "relationships": 25,
+      "resources": 0,
+      "assignments": 0,
+      "milestones": 0,
+      "evidence": 125,
+      "issues": 0,
+      "risks": 0,
+      "proposals": 0,
+      "open_reviews": 0
+    },
+    "failed_quality_checks": [
+      {
+        "code": "dcma_01_logic",
+        "title": "Missing logic",
+        "status": "fail",
+        "severity": "warning",
+        "detail": "Missing logic — 3 of 22 activities (13.6%) have no predecessor or no successor in the source predecessor network (threshold 5%).",
+        "actual": "13.6",
+        "threshold": "5.0"
+      }
+    ]
+  }
+}

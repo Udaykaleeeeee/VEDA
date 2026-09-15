@@ -1,0 +1,23 @@
+{
+  "inbox_id": "397521e1ca974972",
+  "events": [],
+  "result": {
+    "summary": "The schedule 'Project_218_P6_Style_Activities.csv' for project 'gtrfwde' contains 22 activities and shows 32.0% recorded progress. No field-evidence records are available to verify this progress. The schedule has 1 quality finding: 13.6% of activities (3 of 22) are missing predecessor or successor logic, exceeding the 5% threshold.",
+    "schedule_findings": [
+      {
+        "title": "Missing logic",
+        "description": "3 of 22 activities (13.6%) have no predecessor or no successor in the source predecessor network (threshold 5%).",
+        "provenance": "MCP_FACT",
+        "task_uids": [1, 10, 22]
+      }
+    ],
+    "evidence": [],
+    "evidence_links": [],
+    "issues": [],
+    "risks": [],
+    "review_questions": [],
+    "change_proposals": [],
+    "artifacts": [],
+    "notes": []
+  }
+}
