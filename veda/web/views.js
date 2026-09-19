@@ -3849,6 +3849,7 @@ VIEWS.files = async (pid) => {
       '<button class="btn" id="pickfolder" type="button">Browse project folder</button>' +
       '<input type="file" id="fileinput" multiple accept="' + accept + '" hidden>' +
       '<input type="file" id="folderinput" multiple webkitdirectory directory hidden>' +
+      '<small style="display:block;color:var(--ink-3);margin-top:8px">If this browser returns 0 files for a folder, use Browse files and select the folder contents, or open VEDA in Chrome or Edge.</small>' +
       '</div>' +
       '<div id="stagedfiles" style="margin-top:10px">' + stagedHtml + '</div>' +
       '<div style="margin:18px 0 8px;border-top:1px solid var(--line)"></div>' +
@@ -4075,16 +4076,17 @@ VIEWS.bind_files = (pid) => {
 
   if (pick) pick.onclick = (e) => { e.stopPropagation(); inp.click(); };
 
-  // "Browse project folder" prefers the File System Access API: its native
-  // dialog is an explicit folder chooser (a "Select Folder" confirm action),
-  // not a file-open dialog. A `webkitdirectory` <input> is kept only as the
-  // fallback for browsers that lack that API (Firefox, Safari) - and where
-  // even the input's directory mode isn't actually supported, the button is
-  // hidden rather than silently opening a plain file picker.
+  // "Browse project folder" prefers the File System Access API. Embedded
+  // Chromium hosts sometimes honour the input's directory attribute without
+  // exposing the matching DOM property, so the directory input remains the
+  // fallback whenever it exists.
   const hasDirPicker = typeof window.showDirectoryPicker === 'function';
-  const inputDirSupported = !!folderInp && 'webkitdirectory' in folderInp;
-  const folderSupported = hasDirPicker || inputDirSupported;
-  if (folderInp && !hasDirPicker && inputDirSupported) {
+  // Some embedded Chromium hosts honour the webkitdirectory attribute but do
+  // not expose the matching DOM property. Treat the directory input itself as
+  // the fallback capability instead of leaving a visible button with no
+  // handler in those hosts.
+  const folderSupported = !!folderInp || hasDirPicker;
+  if (folderInp && !hasDirPicker) {
     folderInp.webkitdirectory = true;
     folderInp.multiple = true;
     try { folderInp.setAttribute('webkitdirectory', ''); } catch (_) {}
@@ -4094,7 +4096,7 @@ VIEWS.bind_files = (pid) => {
       const picked = folderInp.files ? folderInp.files.length : 0;
       addFiles(folderInp.files);
       folderInp.value = '';
-      if (!picked) window.toast('No files found in that folder.', 'bad');
+      if (!picked) window.toast('This browser returned 0 files. Use Browse files and select the folder contents, or open VEDA in Chrome or Edge.', 'bad');
     };
   }
   if (pickFolder) {
@@ -4126,7 +4128,7 @@ VIEWS.bind_files = (pid) => {
           pickFolder.textContent = label;
         }
       };
-    } else {
+    } else if (folderInp) {
       pickFolder.onclick = (e) => { e.stopPropagation(); folderInp.click(); };
     }
   }
