@@ -3846,10 +3846,10 @@ VIEWS.files = async (pid) => {
       'Schedules + DPRs + spreadsheets + scanned PDFs/photos can arrive together. ' +
       'Focus this box and paste a screenshot too.</div>' +
       '<button class="btn" id="pickfiles" type="button">Browse files</button> ' +
-      '<button class="btn" id="pickfolder" type="button">Browse project folder</button>' +
+      '<button class="btn" id="pickfolder" type="button">Select project folder</button>' +
       '<input type="file" id="fileinput" multiple accept="' + accept + '" hidden>' +
       '<input type="file" id="folderinput" multiple webkitdirectory directory hidden>' +
-      '<small style="display:block;color:var(--ink-3);margin-top:8px">If this browser returns 0 files for a folder, use Browse files and select the folder contents, or open VEDA in Chrome or Edge.</small>' +
+      '<small style="display:block;color:var(--ink-3);margin-top:8px">Windows hides files in the folder chooser. Highlight the folder and click Select Folder; VEDA will then list the files here.</small>' +
       '</div>' +
       '<div id="stagedfiles" style="margin-top:10px">' + stagedHtml + '</div>' +
       '<div style="margin:18px 0 8px;border-top:1px solid var(--line)"></div>' +
@@ -4096,7 +4096,8 @@ VIEWS.bind_files = (pid) => {
       const picked = folderInp.files ? folderInp.files.length : 0;
       addFiles(folderInp.files);
       folderInp.value = '';
-      if (!picked) window.toast('This browser returned 0 files. Use Browse files and select the folder contents, or open VEDA in Chrome or Edge.', 'bad');
+      if (picked) window.toast(picked + ' file(s) staged from the selected folder.', 'good');
+      else window.toast('No folder was imported. Highlight the folder and press Select Folder; if it still returns 0, use Browse files and select its contents.', 'bad');
     };
   }
   if (pickFolder) {
