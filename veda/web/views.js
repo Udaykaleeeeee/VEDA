@@ -3849,7 +3849,7 @@ VIEWS.files = async (pid) => {
       '<button class="btn" id="pickfolder" type="button">Select project folder</button>' +
       '<input type="file" id="fileinput" multiple accept="' + accept + '" hidden>' +
       '<input type="file" id="folderinput" multiple webkitdirectory directory hidden>' +
-      '<small style="display:block;color:var(--ink-3);margin-top:8px">Windows hides files in the folder chooser. Highlight the folder and click Select Folder; VEDA will then list the files here.</small>' +
+      '<small id="folderhelp" style="display:block;color:var(--ink-3);margin-top:8px">Choose a folder to stage its supported files recursively.</small>' +
       '</div>' +
       '<div id="stagedfiles" style="margin-top:10px">' + stagedHtml + '</div>' +
       '<div style="margin:18px 0 8px;border-top:1px solid var(--line)"></div>' +
@@ -4076,21 +4076,11 @@ VIEWS.bind_files = (pid) => {
 
   if (pick) pick.onclick = (e) => { e.stopPropagation(); inp.click(); };
 
-  // "Browse project folder" prefers the File System Access API. Embedded
-  // Chromium hosts sometimes honour the input's directory attribute without
-  // exposing the matching DOM property, so the directory input remains the
-  // fallback whenever it exists.
+  // Folder selection needs the File System Access API. Some embedded Chromium
+  // hosts render a webkitdirectory chooser but return an empty FileList after
+  // selection, so showing that fallback gives the operator a false success.
   const hasDirPicker = typeof window.showDirectoryPicker === 'function';
-  // Some embedded Chromium hosts honour the webkitdirectory attribute but do
-  // not expose the matching DOM property. Treat the directory input itself as
-  // the fallback capability instead of leaving a visible button with no
-  // handler in those hosts.
-  const folderSupported = !!folderInp || hasDirPicker;
-  if (folderInp && !hasDirPicker) {
-    folderInp.webkitdirectory = true;
-    folderInp.multiple = true;
-    try { folderInp.setAttribute('webkitdirectory', ''); } catch (_) {}
-  }
+  const folderHelp = document.getElementById('folderhelp');
   if (folderInp) {
     folderInp.onchange = () => {
       const picked = folderInp.files ? folderInp.files.length : 0;
@@ -4101,9 +4091,11 @@ VIEWS.bind_files = (pid) => {
     };
   }
   if (pickFolder) {
-    if (!folderSupported) {
+    if (!hasDirPicker) {
       pickFolder.hidden = true;
-    } else if (hasDirPicker) {
+      if (folderHelp) folderHelp.textContent =
+        'Folder selection is unavailable in this embedded browser. Use Browse files (Ctrl+A inside the folder), or drag the folder into this box.';
+    } else {
       const label = pickFolder.textContent;
       pickFolder.onclick = async (e) => {
         e.stopPropagation();
@@ -4129,8 +4121,6 @@ VIEWS.bind_files = (pid) => {
           pickFolder.textContent = label;
         }
       };
-    } else if (folderInp) {
-      pickFolder.onclick = (e) => { e.stopPropagation(); folderInp.click(); };
     }
   }
   inp.onchange = () => { addFiles(inp.files); inp.value = ''; };
