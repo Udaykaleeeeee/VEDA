@@ -128,6 +128,103 @@ html[data-theme="light"] .intervention-panel { background: var(--surface); }
 .dashboard-details > .grid { margin: 0 16px 16px; }
 .welcome-hero { margin-bottom: 28px; }
 .welcome-panel { max-width: 760px; margin: 0 auto; }
+
+/* Site Vision uses a dark video canvas in both themes, but its workspace must
+   follow the active appearance. Keep only the footage and overlay HUD dark. */
+html[data-theme="light"] .site-vision-panel,
+html[data-theme="light"] .cctv-workstation {
+  color: var(--ink); border-color: var(--line-2); background: var(--surface);
+}
+html[data-theme="light"] .site-vision-head,
+html[data-theme="light"] .cctv-head {
+  border-bottom-color: var(--line);
+  background: linear-gradient(118deg, rgba(31,111,93,.08), var(--surface) 58%);
+}
+html[data-theme="light"] .site-vision-head h2,
+html[data-theme="light"] .cctv-head h3 { color: var(--ink); }
+html[data-theme="light"] .site-vision-head p,
+html[data-theme="light"] .cctv-head p,
+html[data-theme="light"] .site-vision-label > span,
+html[data-theme="light"] .cctv-feed-toolbar label > span,
+html[data-theme="light"] .cctv-review-card label > span { color: var(--ink-3); }
+html[data-theme="light"] .site-vision-head-actions > span,
+html[data-theme="light"] .cctv-kicker { color: #176655; }
+html[data-theme="light"] .site-vision-head-actions .btn,
+html[data-theme="light"] .cctv-feed-toolbar .btn {
+  color: var(--ink-2); border-color: var(--line-2); background: var(--surface);
+}
+html[data-theme="light"] .site-vision-tabs { border-bottom-color: var(--line); }
+html[data-theme="light"] .site-vision-tabs button { color: var(--ink-3); }
+html[data-theme="light"] .site-vision-tabs button.selected {
+  color: var(--ink); border-bottom-color: #267E6D;
+}
+html[data-theme="light"] .site-vision-tabs small { color: var(--ink-4); }
+html[data-theme="light"] .site-vision-stage,
+html[data-theme="light"] .cctv-feed-column { border-right-color: var(--line); background: var(--surface); }
+html[data-theme="light"] .site-vision-playerbar { color: var(--ink-3); }
+html[data-theme="light"] .site-vision-playerbar .link { color: #267E6D; }
+html[data-theme="light"] .vision-mode-switch {
+  border-color: var(--line-2); background: var(--surface-3);
+}
+html[data-theme="light"] .vision-mode-switch button { color: var(--ink-3); }
+html[data-theme="light"] .vision-mode-switch button.selected { color: #FFF; background: #267E6D; }
+html[data-theme="light"] .site-vision-inspector,
+html[data-theme="light"] .cctv-review-card { color: var(--ink); background: var(--surface-2); }
+html[data-theme="light"] .site-vision-label .inp,
+html[data-theme="light"] .cctv-feed-toolbar .inp,
+html[data-theme="light"] .cctv-review-card .inp {
+  color: var(--ink); border-color: var(--line-2); background: var(--surface);
+}
+html[data-theme="light"] .site-vision-signal,
+html[data-theme="light"] .worker-upload-state {
+  border-color: #B9D8CE; background: #EDF7F3;
+}
+html[data-theme="light"] .site-vision-signal > span { color: #176655; }
+html[data-theme="light"] .site-vision-signal b { color: var(--ink); }
+html[data-theme="light"] .site-vision-signal small,
+html[data-theme="light"] .worker-upload-state small { color: var(--ink-3); }
+html[data-theme="light"] .site-vision-detections > div,
+html[data-theme="light"] .site-vision-candidate,
+html[data-theme="light"] .cctv-observation-rail > button {
+  color: var(--ink); border-color: var(--line); background: var(--surface);
+}
+html[data-theme="light"] .site-vision-detections small,
+html[data-theme="light"] .site-vision-detections .vision-detection-empty,
+html[data-theme="light"] .site-vision-candidate > span,
+html[data-theme="light"] .site-vision-candidate small,
+html[data-theme="light"] .site-vision-candidate p,
+html[data-theme="light"] .site-vision-disclosure,
+html[data-theme="light"] .cctv-observation-rail small,
+html[data-theme="light"] .cctv-review-title b { color: var(--ink-3); }
+html[data-theme="light"] .site-vision-candidate > b,
+html[data-theme="light"] .cctv-review-title span { color: var(--ink); }
+html[data-theme="light"] .site-vision-candidate strong,
+html[data-theme="light"] .cctv-percent b { color: #176655; }
+html[data-theme="light"] .site-safety-watch {
+  color: #6E2F2A; background: #FFF3F1;
+}
+html[data-theme="light"] .site-safety-watch h3 { color: #612A26; }
+html[data-theme="light"] .site-safety-watch p,
+html[data-theme="light"] .site-safety-watch small { color: #86534E; }
+html[data-theme="light"] .site-safety-watch.acknowledged {
+  border-color: #B9D8CE; border-left-color: #267E6D; background: #EDF7F3;
+}
+html[data-theme="light"] .cctv-close {
+  color: var(--ink-2); border-color: var(--line-2); background: var(--surface);
+}
+html[data-theme="light"] .cctv-close:hover { color: var(--ink); border-color: var(--line-3); }
+html[data-theme="light"] .cctv-observation-rail > button:hover,
+html[data-theme="light"] .cctv-observation-rail > button.selected {
+  border-color: #83B7AA; background: #EDF7F3;
+}
+html[data-theme="light"] .cctv-review-fields output {
+  color: var(--ink-2); border-color: var(--line-2); background: var(--surface);
+}
+html[data-theme="light"] .cctv-attach { color: #267E6D; }
+html[data-theme="light"] .cctv-review-card > p {
+  color: var(--ink-3); border-color: var(--line); background: var(--surface-3);
+}
+html[data-theme="light"] .cctv-review-card > p b { color: var(--ink-2); }
 @media (min-width: 1700px) { .main { padding-inline: max(30px, calc((100vw - var(--rail) - 1480px) / 2)); } }
 @media (max-width: 1250px) {
   .dashboard-shortcuts { grid-template-columns: repeat(2,minmax(0,1fr)); }
