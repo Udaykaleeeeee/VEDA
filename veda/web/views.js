@@ -1357,18 +1357,33 @@ VIEWS.controls = async (pid, params) => {
     '<label><span>Why this is new scope</span><textarea class="inp" rows="3" name="reason"></textarea></label>', 'Create governed proposal');
 
   const schedule = overview.schedule || {};
-  const scenarioLab = '<section class="scenario-lab"><header><div><span class="eyebrow">Non-destructive planning</span>' +
-    '<h2>Scenario Lab</h2><p>Screen a recovery idea against the current forecast before creating a governed proposal.</p></div>' +
-    '<span class="tag violet">does not edit the schedule</span></header><div class="scenario-grid">' +
-    '<div class="scenario-inputs"><label><span>Scenario name</span><input class="inp" id="scenario-name" value="Recovery option A"></label>' +
-    '<label><span>Possible delay</span><div class="scenario-number"><input class="inp" id="scenario-delay" type="number" min="0" step="1" value="0"><i>days</i></div></label>' +
-    '<label><span>Expected recovery</span><div class="scenario-number"><input class="inp" id="scenario-recovery" type="number" min="0" step="1" value="0"><i>days</i></div></label>' +
-    '<label><span>Added crew / equipment cost</span><div class="scenario-number"><input class="inp" id="scenario-cost" type="number" min="0" step="1000" value="0"><i>estimate</i></div></label>' +
-    '<button class="btn primary" type="button" id="scenario-run">Compare option</button></div>' +
-    '<div class="scenario-result" id="scenario-result" data-forecast="' + E(schedule.forecast_finish || '') + '">' +
-      '<span>Current forecast</span><b>' + (schedule.forecast_finish ? day(schedule.forecast_finish) : 'Not evaluable') +
-      '</b><p>Enter explicit assumptions to compare an option. VEDA will show arithmetic only; CPM logic and resource feasibility still require schedule validation.</p>' +
-    '</div></div><footer>Scenario results are temporary and clearly separated from schedule facts, field evidence, and approved changes.</footer></section>';
+  const scenarioLab = '<section class="scenario-lab"><header><div><span class="eyebrow">Non-destructive planning studio</span>' +
+    '<h2>Scenario Lab</h2><p>Set an objective, apply explicit levers, and compare the result with the current forecast.</p></div>' +
+    '<span class="tag violet">does not edit the schedule</span></header>' +
+    '<div class="scenario-presets"><span>Quick starts</span>' +
+      '<button type="button" data-scenario-preset="recover">Recover 5 days</button>' +
+      '<button type="button" data-scenario-preset="protect">Protect a milestone</button>' +
+      '<button type="button" data-scenario-preset="disruption">Lowest disruption</button>' +
+    '</div><div class="scenario-workspace"><div class="scenario-builder">' +
+      '<div class="scenario-step"><i>1</i><div><b>Choose the objective</b><small>What should this option optimize?</small></div></div>' +
+      '<div class="scenario-objectives" role="group" aria-label="Scenario objective">' +
+        '<button class="on" type="button" data-scenario-objective="balanced"><b>Balanced</b><small>Time × cost</small></button>' +
+        '<button type="button" data-scenario-objective="fastest"><b>Fastest</b><small>Recover time</small></button>' +
+        '<button type="button" data-scenario-objective="lowest_cost"><b>Lowest cost</b><small>Limit spend</small></button>' +
+      '</div><div class="scenario-step"><i>2</i><div><b>Define the levers</b><small>Only values you enter are used.</small></div></div>' +
+      '<div class="scenario-inputs"><label><span>Scenario name</span><input class="inp" id="scenario-name" value="Recovery option A"></label>' +
+        '<label><span>Target milestone date</span><input class="inp" id="scenario-target" type="date"></label>' +
+        '<label><span>Possible delay</span><div class="scenario-number"><input class="inp" id="scenario-delay" type="number" min="0" step="1" value="0"><i>days</i></div></label>' +
+        '<label><span>Expected recovery</span><div class="scenario-number"><input class="inp" id="scenario-recovery" type="number" min="0" step="1" value="0"><i>days</i></div></label>' +
+        '<label class="scenario-wide"><span>Added crew / equipment cost</span><div class="scenario-number"><input class="inp" id="scenario-cost" type="number" min="0" step="1000" value="0"><i>estimate</i></div></label>' +
+      '</div><button class="btn primary scenario-compare" type="button" id="scenario-run">Compare with current plan</button>' +
+    '</div><div class="scenario-analysis"><div class="scenario-baseline"><span>Current schedule</span><b>' +
+      (schedule.forecast_finish ? day(schedule.forecast_finish) : 'Forecast unavailable') +
+      '</b><small>' + E(schedule.forecast_basis || 'Source-supported forecast required for an absolute date') + '</small></div>' +
+      '<div class="scenario-result" id="scenario-result" data-forecast="' + E(schedule.forecast_finish || '') + '">' +
+        '<div class="scenario-result-empty"><span>OPTION COMPARISON</span><b>Ready for assumptions</b>' +
+        '<p>Choose a quick start or enter your own levers. VEDA will separate the result from schedule facts.</p></div>' +
+      '</div></div></div><footer><span>Screening arithmetic</span><span>CPM validation required</span><span>Human approval before change</span></footer></section>';
 
   return head('Recovery & Scenarios', 'Lookahead readiness · hindrances · recovery screening · field context',
     '<select class="inp" id="lookahead-days"><option value="14">2 weeks</option><option value="42">6 weeks</option><option value="90">90 days</option></select>' +
@@ -1399,12 +1414,14 @@ VIEWS.bind_controls = (pid, params) => {
   const days = document.getElementById('lookahead-days');
   if (days) { days.value = String(params.days || 42); days.onchange = () => go('controls', {days: days.value}); }
   const scenarioRun = document.getElementById('scenario-run');
-  if (scenarioRun) scenarioRun.onclick = () => {
+  let scenarioObjective = 'balanced';
+  const runScenario = () => {
     const result = document.getElementById('scenario-result');
     const base = result.dataset.forecast;
     const delay = Math.max(0, Number(document.getElementById('scenario-delay').value) || 0);
     const recovery = Math.max(0, Number(document.getElementById('scenario-recovery').value) || 0);
     const cost = Math.max(0, Number(document.getElementById('scenario-cost').value) || 0);
+    const target = document.getElementById('scenario-target').value;
     const net = delay - recovery;
     let finish = 'Not evaluable';
     if (base) {
@@ -1412,12 +1429,48 @@ VIEWS.bind_controls = (pid, params) => {
       value.setUTCDate(value.getUTCDate() + net);
       finish = value.toISOString().slice(0, 10);
     }
-    result.className = 'scenario-result ' + (net > 0 ? 'worse' : net < 0 ? 'better' : 'neutral');
-    result.innerHTML = '<span>' + E(document.getElementById('scenario-name').value || 'Scenario') + '</span><b>' +
-      E(finish) + '</b><div class="scenario-delta"><strong>' + (net > 0 ? '+' : '') + E(net) +
-      ' calendar days</strong><small>' + (cost ? 'Added cost estimate · ' + E(cost.toLocaleString()) : 'No added cost entered') +
-      '</small></div><p>Screening result from your delay and recovery assumptions. Validate logic, calendars, resources, cost, and critical path before proposing a change.</p>';
+    const targetGap = target && finish !== 'Not evaluable'
+      ? Math.round((new Date(finish + 'T00:00:00Z') - new Date(target + 'T00:00:00Z')) / 86400000) : null;
+    const tone = net > 0 ? 'worse' : net < 0 ? 'better' : 'neutral';
+    const maxDays = Math.max(10, Math.abs(net) + 4);
+    const point = Math.max(8, Math.min(92, 50 + (net / maxDays) * 42));
+    const objectiveLabel = scenarioObjective === 'fastest' ? 'Fastest finish' :
+      scenarioObjective === 'lowest_cost' ? 'Lowest cost' : 'Balanced time and cost';
+    const targetText = targetGap === null ? 'No comparable target date' : targetGap <= 0
+      ? Math.abs(targetGap) + 'd inside target' : targetGap + 'd beyond target';
+    result.className = 'scenario-result ' + tone;
+    result.innerHTML = '<div class="scenario-result-head"><div><span>SCREENING RESULT</span><b>' +
+      E(document.getElementById('scenario-name').value || 'Scenario') + '</b></div><em>' + E(objectiveLabel) + '</em></div>' +
+      '<div class="scenario-kpis"><div><span>Candidate finish</span><b>' + E(finish) + '</b></div>' +
+      '<div><span>Calendar movement</span><b>' + (net > 0 ? '+' : '') + E(net) + 'd</b></div>' +
+      '<div><span>Added cost</span><b>' + (cost ? E(cost.toLocaleString()) : '0') + '</b></div></div>' +
+      '<div class="scenario-tradeoff"><header><span>Earlier</span><b>TIME / COST TRADE-OFF</b><span>Later</span></header>' +
+      '<div class="scenario-tradeoff-track"><i class="base" style="left:50%"><small>Current</small></i>' +
+      '<i class="candidate" style="left:' + point + '%"><small>Option</small></i></div></div>' +
+      '<div class="scenario-verdict"><strong>' + E(targetText) + '</strong><span>' +
+      (net < 0 ? 'Screens as an earlier finish; validate the driving activities and resource capacity.' :
+       net > 0 ? 'Screens later than the current plan; mitigation or formal acceptance is required.' :
+       'No net calendar movement from the entered assumptions.') + '</span></div>' +
+      '<details><summary>Assumptions and validation boundary</summary><p>Delay ' + E(delay) +
+      'd · recovery ' + E(recovery) + 'd · added cost ' + E(cost.toLocaleString()) +
+      '. This is screening arithmetic, not a CPM run. Validate logic, calendars, resources, cost and the critical path before proposing a change.</p></details>';
   };
+  if (scenarioRun) scenarioRun.onclick = runScenario;
+  document.querySelectorAll('[data-scenario-objective]').forEach(button => button.onclick = () => {
+    document.querySelectorAll('[data-scenario-objective]').forEach(x => x.classList.remove('on'));
+    button.classList.add('on'); scenarioObjective = button.dataset.scenarioObjective;
+  });
+  document.querySelectorAll('[data-scenario-preset]').forEach(button => button.onclick = () => {
+    const preset = button.dataset.scenarioPreset;
+    const name = document.getElementById('scenario-name');
+    const delay = document.getElementById('scenario-delay');
+    const recovery = document.getElementById('scenario-recovery');
+    const cost = document.getElementById('scenario-cost');
+    if (preset === 'recover') { name.value = 'Five-day recovery'; delay.value = 0; recovery.value = 5; cost.value = 25000; }
+    if (preset === 'protect') { name.value = 'Milestone protection'; delay.value = 7; recovery.value = 7; cost.value = 40000; }
+    if (preset === 'disruption') { name.value = 'Lowest disruption'; delay.value = 3; recovery.value = 3; cost.value = 0; }
+    runScenario();
+  });
   const payload = form => {
     const body = Object.fromEntries(new FormData(form).entries());
     form.querySelectorAll('input[type="checkbox"][name]').forEach(box => body[box.name] = box.checked);
@@ -1877,6 +1930,8 @@ VIEWS.quality = async (pid) => {
   const r = await A('/projects/' + pid + '/quality');
   const s = r.summary || {};
   const g = s.semanticGuard || {};
+  const failed = (r.findings || []).filter(f => f.status === 'fail');
+  const affected = new Set(failed.flatMap(f => f.task_uids || [])).size;
   return head('Schedule Health', 'Source-evaluable quality checks with exact findings and fixes',
     prov('MCP_FACT') + ' ' + prov('DETERMINISTIC_CALCULATION')) +
     '<div class="grid g4" style="margin-bottom:14px">' +
@@ -1888,6 +1943,16 @@ VIEWS.quality = async (pid) => {
       'reported honestly, never passed') +
     '</div>' +
     '<div class="note mcp" style="margin-bottom:14px">' + E(r.basis) + '</div>' +
+    '<section class="assurance-focus"><div><span class="eyebrow">Planner focus</span><h2>' +
+      (failed.length ? int(failed.length) + ' checks need attention' : 'No evaluated failures') +
+      '</h2><p>' + (failed.length ? int(affected) + ' unique activities are referenced by failed checks. Work from critical findings down.' :
+        'Not-evaluated checks remain visible and are never counted as passes.') + '</p></div>' +
+      '<div class="assurance-filters" role="group" aria-label="Filter schedule findings">' +
+        '<button class="on" type="button" data-quality-filter="all">All <b>' + int(r.findings.length) + '</b></button>' +
+        '<button type="button" data-quality-filter="fail">Failed <b>' + int(s.failed || 0) + '</b></button>' +
+        '<button type="button" data-quality-filter="not_evaluated">Not evaluated <b>' + int(s.notEvaluated || 0) + '</b></button>' +
+        '<button type="button" data-quality-filter="pass">Passed <b>' + int(s.passed || 0) + '</b></button>' +
+      '</div></section>' +
     (g.applied ? '<div class="note" style="margin-bottom:14px">' +
       '<b>Source-semantic guard applied.</b> ' +
       (g.sourceFormat ? E(String(g.sourceFormat).toUpperCase()) + ': ' : '') +
@@ -1900,21 +1965,32 @@ VIEWS.quality = async (pid) => {
           (g.baselineAssigned ? 'assigned baseline present' : 'assigned baseline absent'))) +
       (g.dataDate ? ' · data date ' + day(g.dataDate) : ' · data/status date unavailable') + '</div>' : '') +
     panel('Findings <small>' + r.findings.length + '</small>',
-      '<div class="body">' + (r.findings.length ? r.findings.map(f =>
-      '<div class="check"><span class="m ' +
+      '<div class="body quality-findings">' + (r.findings.length ? r.findings.map(f =>
+      '<div class="check" data-quality-status="' + E(f.status) + '"><span class="m ' +
       (f.status === 'pass' ? 'pass' : f.status === 'fail' ? 'fail' : 'warn') +
       '">' + E(f.status === 'not_evaluated' ? 'not evaluated' : f.status) + '</span>' +
       '<span class="n">' + E(f.code) + '</span>' +
       '<span style="flex:1">' + E(f.title) + ' — ' + E(f.detail || '') +
       (f.task_uids && f.task_uids.length
         ? '<br><span class="mono" style="font-size:11px;color:var(--ink-3)">' +
-          'affects uid ' + f.task_uids.slice(0, 24).map(E).join(', ') +
+          'affects ' + f.task_uids.slice(0, 24).map(uid => '<button class="link" onclick="go(\'activity\',{id:' +
+            Number(uid) + '})">UID ' + E(uid) + '</button>').join(' · ') +
           (f.task_uids.length > 24 ? ' …' : '') + '</span>' : '') +
       '</span>' + prov(f.provenance) + '<span class="sev-' +
       E(String(f.severity || '').toLowerCase()) +
       '" style="font-family:var(--mono);font-size:11px">' + E(f.severity || '') +
       '</span></div>').join('')
       : empty('No quality findings', 'Analyse a schedule first.')) + '</div>');
+};
+
+VIEWS.bind_quality = () => {
+  document.querySelectorAll('[data-quality-filter]').forEach(button => button.onclick = () => {
+    const filter = button.dataset.qualityFilter;
+    document.querySelectorAll('[data-quality-filter]').forEach(x => x.classList.toggle('on', x === button));
+    document.querySelectorAll('[data-quality-status]').forEach(row => {
+      row.hidden = filter !== 'all' && row.dataset.qualityStatus !== filter;
+    });
+  });
 };
 
 /* ==================================================== 9. Baselines */
