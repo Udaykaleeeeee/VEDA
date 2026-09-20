@@ -1385,6 +1385,24 @@ VIEWS.controls = async (pid, params) => {
         '<p>Choose a quick start or enter your own levers. VEDA will separate the result from schedule facts.</p></div>' +
       '</div></div></div><footer><span>Screening arithmetic</span><span>CPM validation required</span><span>Human approval before change</span></footer></section>';
 
+  VIEWS._spatialPayload = VIEWS._spatialPayload || {};
+  VIEWS._spatialPayload[pid] = {activities: (look.activities || []).slice(0, 6)};
+  const spatialControl = '<section class="spatial-control"><header><div><span class="eyebrow">VEDA Spatial Control</span>' +
+    '<h2>See the plan in space</h2><p>Explore workfronts, construction sequence and the scenario route without reading a dense model tree.</p></div>' +
+    '<span class="tag amber">illustrative spatial model</span></header>' +
+    '<div class="spatial-toolbar" role="group" aria-label="Spatial view">' +
+      '<button class="on" type="button" data-spatial-mode="site"><i>01</i><span><b>Site</b><small>Whole construction area</small></span></button>' +
+      '<button type="button" data-spatial-mode="workfront"><i>02</i><span><b>Workfront</b><small>Focus pipes and spools</small></span></button>' +
+      '<button type="button" data-spatial-mode="scenario"><i>03</i><span><b>Scenario</b><small>Show proposed route</small></span></button>' +
+    '</div><div class="spatial-stage"><div class="spatial-canvas" id="veda-spatial-canvas" aria-label="Interactive illustrative construction model"></div>' +
+      '<div class="spatial-hud"><span><i></i> VEDA SPATIAL / LOCAL</span><small>Drag to orbit · scroll to zoom · select an object</small></div>' +
+      '<aside class="spatial-inspector" id="spatial-inspector"><span>SPATIAL INSPECTOR</span><b>Preparing construction view…</b></aside>' +
+      '<div class="spatial-legend"><span class="active"><i></i>Active</span><span class="constrained"><i></i>Constrained</span>' +
+        '<span class="future"><i></i>Future</span><span class="proposed"><i></i>Scenario</span></div></div>' +
+    '<footer class="spatial-phase"><div><span>Construction sequence</span><b id="spatial-phase-label">100% sequence</b></div>' +
+      '<input id="spatial-phase" type="range" min="0" max="100" value="100" aria-label="Construction sequence position">' +
+      '<small>Drag left to reveal how the site builds up. This is a visual sequence, not recorded progress.</small></footer></section>';
+
   return head('Recovery & Scenarios', 'Lookahead readiness · hindrances · recovery screening · field context',
     '<select class="inp" id="lookahead-days"><option value="14">2 weeks</option><option value="42">6 weeks</option><option value="90">90 days</option></select>' +
     '<button class="btn sm" onclick="go(\'timeline\',{window:\'42\'})">Open timeline</button>') +
@@ -1393,6 +1411,7 @@ VIEWS.controls = async (pid, params) => {
     stat('Confirmed BIM identities', int(r.counts.bim_links), 'exact model-to-activity links') +
     stat('New-scope events', int(r.counts.new_scope_waiting), 'not yet represented by a governed activity proposal', r.counts.new_scope_waiting ? 'warm' : 'good') + '</div>' +
     scenarioLab +
+    spatialControl +
     '<div class="control-forms">' + constraintForm + hindranceForm + contextForm + bimForm + suggestionForm + '</div>' +
     '<div class="section-divider"><span>' + E(look.anchor) + ' → ' + E(look.horizon) + '</span><small>Readiness look-ahead</small></div>' +
     '<div class="readiness-strip"><span class="green">' + int(look.counts.ready) + ' ready</span><span class="red">' + int(look.counts.blocked) +
@@ -1471,6 +1490,12 @@ VIEWS.bind_controls = (pid, params) => {
     if (preset === 'disruption') { name.value = 'Lowest disruption'; delay.value = 3; recovery.value = 3; cost.value = 0; }
     runScenario();
   });
+  const spatialPayload = (VIEWS._spatialPayload && VIEWS._spatialPayload[pid]) || {activities: []};
+  if (window.SpatialControl) window.SpatialControl.mount('veda-spatial-canvas', spatialPayload);
+  else {
+    window.__vedaSpatialPending = {hostId:'veda-spatial-canvas', payload:spatialPayload};
+    window.dispatchEvent(new CustomEvent('veda:spatial-mount', {detail: window.__vedaSpatialPending}));
+  }
   const payload = form => {
     const body = Object.fromEntries(new FormData(form).entries());
     form.querySelectorAll('input[type="checkbox"][name]').forEach(box => body[box.name] = box.checked);

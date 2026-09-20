@@ -1074,6 +1074,27 @@ html[data-theme="light"] .np-next-steps i { background: #FFF; }
 @media (max-width:1050px) { .scenario-workspace { grid-template-columns:1fr; }.scenario-builder { border-right:0; border-bottom:1px solid var(--line); }.assurance-focus { grid-template-columns:1fr; }.assurance-filters { justify-content:flex-start; } }
 @media (max-width:650px) { .scenario-presets { align-items:stretch; flex-direction:column; }.scenario-objectives,.scenario-kpis { grid-template-columns:1fr; }.scenario-lab > footer { flex-direction:column; gap:5px; } }
 
+/* ---------------------------------------------------- spatial control */
+.spatial-control { margin:14px 0; overflow:hidden; border:1px solid #244b47; background:#071514; box-shadow:0 18px 50px rgba(6,30,27,.18); }
+.spatial-control > header { display:flex; align-items:center; gap:16px; padding:16px 18px; color:#e9fffb; border-bottom:1px solid rgba(116,228,211,.17); background:linear-gradient(110deg,#0a1d1b,#102c29); }
+.spatial-control > header > div { min-width:0; flex:1; }.spatial-control > header .eyebrow { color:#65ddcb; }.spatial-control > header h2 { margin:5px 0 0; font-size:20px; }.spatial-control > header p { margin:5px 0 0; color:#96b8b2; font-size:11.5px; }
+.spatial-toolbar { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; padding:1px; background:#173a36; }
+.spatial-toolbar button { display:flex; align-items:center; gap:10px; min-height:60px; padding:10px 14px; color:#9fbbb6; text-align:left; background:#0b201e; border:0; cursor:pointer; }
+.spatial-toolbar button:hover,.spatial-toolbar button.on { color:#e9fffb; background:#12332f; box-shadow:inset 0 -2px 0 #57dfca; }
+.spatial-toolbar button > i { display:grid; place-items:center; width:26px; height:26px; color:#66dfcd; border:1px solid #2c6d65; font:700 9px/1 var(--mono); font-style:normal; }
+.spatial-toolbar button span { display:flex; flex-direction:column; gap:3px; }.spatial-toolbar button b { font-size:12px; }.spatial-toolbar button small { color:#6f9992; font-size:9.5px; }
+.spatial-stage { position:relative; min-height:540px; background:#071514; isolation:isolate; }
+.spatial-canvas { position:absolute; inset:0; }.spatial-canvas canvas { display:block; width:100%; height:100%; touch-action:none; }
+.spatial-hud { position:absolute; z-index:2; top:16px; left:16px; display:flex; flex-direction:column; gap:5px; padding:9px 11px; color:#d9fff8; border-left:2px solid #53dfca; background:rgba(4,19,17,.76); backdrop-filter:blur(8px); pointer-events:none; }
+.spatial-hud span { font:700 9px/1 var(--mono); letter-spacing:.1em; }.spatial-hud span i { display:inline-block; width:6px; height:6px; margin-right:4px; background:#59e0c9; box-shadow:0 0 12px #59e0c9; }.spatial-hud small { color:#7ba49d; font-size:9px; }
+.spatial-inspector { position:absolute; z-index:2; top:16px; right:16px; display:flex; flex-direction:column; gap:7px; width:min(285px,calc(100% - 32px)); padding:13px 14px; color:#e7fff9; border:1px solid rgba(89,224,201,.27); background:rgba(5,23,20,.84); backdrop-filter:blur(10px); }
+.spatial-inspector > span { color:#64dcca; font:700 8.5px/1 var(--mono); letter-spacing:.11em; }.spatial-inspector > b { font-size:13px; }.spatial-inspector > small { color:#87aaa4; font-size:10px; line-height:1.45; }.spatial-inspector > div { display:flex; align-items:center; gap:8px; margin-top:3px; }.spatial-inspector em { padding:5px 7px; color:#0a1e1b; background:#61dec9; font:700 8.5px/1 var(--mono); font-style:normal; text-transform:uppercase; }.spatial-inspector button { margin-left:auto; padding:0; color:#6ce6d3; background:none; border:0; font-size:10px; cursor:pointer; }
+.spatial-legend { position:absolute; z-index:2; left:16px; bottom:15px; display:flex; gap:12px; padding:8px 10px; color:#9dbbb6; background:rgba(5,23,20,.75); backdrop-filter:blur(7px); pointer-events:none; }.spatial-legend span { display:flex; align-items:center; gap:5px; font-size:8.5px; }.spatial-legend i { width:7px; height:7px; background:#1aa58f; }.spatial-legend .constrained i { background:#e2a63b; }.spatial-legend .future i { background:#607b83; }.spatial-legend .proposed i { background:#42e6d1; box-shadow:0 0 8px #42e6d1; }
+.spatial-phase { display:grid; grid-template-columns:180px minmax(180px,1fr) minmax(260px,.8fr); align-items:center; gap:18px; padding:12px 18px; color:#d9f5f0; border-top:1px solid rgba(116,228,211,.17); background:#0a1d1b; }
+.spatial-phase > div { display:flex; flex-direction:column; gap:4px; }.spatial-phase span { color:#7da39d; font:8.5px/1 var(--mono); text-transform:uppercase; letter-spacing:.09em; }.spatial-phase b { font-size:11px; }.spatial-phase input { width:100%; accent-color:#4fdac4; }.spatial-phase small { color:#71968f; font-size:9.5px; line-height:1.4; }
+@media (max-width:760px) { .spatial-toolbar { grid-template-columns:1fr; }.spatial-stage { min-height:440px; }.spatial-inspector { top:auto; bottom:54px; left:16px; right:16px; width:auto; }.spatial-legend { display:none; }.spatial-phase { grid-template-columns:1fr; gap:8px; } }
+@media (prefers-reduced-motion:reduce) { .spatial-control * { scroll-behavior:auto!important; } }
+
 /* ================================================== hard-edge visual system
    Everything in VEDA is square. The product is an instrument panel for a
    construction schedule, so the surfaces read as machined plate: 1px hairlines,

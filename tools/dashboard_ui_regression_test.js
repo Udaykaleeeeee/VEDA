@@ -31,6 +31,8 @@ vm.runInContext(source + '\nthis.views = VIEWS;', sandbox);
   assert(source.includes("VIEWS.portfolio = async"), 'Portfolio control view is missing');
   assert(source.includes('does not edit the schedule'), 'Scenario Lab must state its non-destructive boundary');
   assert(source.includes('Exact schedule changes'), 'Revision comparison drill-down is missing');
+  assert(source.includes('VEDA Spatial Control'), 'Spatial construction view is missing');
+  assert(source.includes('illustrative spatial model'), 'Spatial view must disclose its illustrative status');
   sandbox.views._dashboardDetails = {test:true};
   data.schedule.progress_available=1;
   data.schedule.criticality_available=1;
