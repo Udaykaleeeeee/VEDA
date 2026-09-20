@@ -14,8 +14,8 @@
   document.documentElement.dataset.theme = saved === 'dark' ? 'dark' : 'light';
 })();
 </script>
-<link rel="stylesheet" href="/static/app.css?v=1.68">
-<link rel="stylesheet" href="/static/design.css?v=1.68">
+<link rel="stylesheet" href="/static/app.css?v=1.69">
+<link rel="stylesheet" href="/static/design.css?v=1.69">
 </head>
 <body>
 <button class="skip-link" id="skip-main" type="button">Skip to main content</button>
@@ -30,8 +30,12 @@
     <div class="topbar-project">
       <select class="projpick" id="projpick" aria-label="Current project"></select>
       <div class="topbar-project-actions">
-        <button class="topbar-link" id="newproj">New project</button>
-        <button class="topbar-link danger" id="delproj" title="Choose a project to delete">Delete</button>
+        <button class="topbar-link new-project" id="newproj" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New project</span>
+        </button>
+        <button class="topbar-link danger" id="delproj" type="button" title="Delete a project" aria-label="Delete a project">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg><span>Delete</span>
+        </button>
       </div>
     </div>
     <div class="spacer"></div>
@@ -76,9 +80,9 @@
   <main class="main" id="main" tabindex="-1"></main>
 </div>
 <div class="toasts" id="toasts"></div>
-<script src="/static/views.js?v=1.68"></script>
-<script src="/static/vision-tracker.js?v=1.68"></script>
-<script src="/static/field-capture.js?v=1.68"></script>
-<script src="/static/app.js?v=1.68"></script>
+<script src="/static/views.js?v=1.69"></script>
+<script src="/static/vision-tracker.js?v=1.69"></script>
+<script src="/static/field-capture.js?v=1.69"></script>
+<script src="/static/app.js?v=1.69"></script>
 </body>
 </html>

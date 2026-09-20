@@ -33,6 +33,23 @@ body { background-image: none; }
 .topbar-project { min-width: 0; }
 .projpick { min-width: 110px; max-width: 250px; text-overflow: ellipsis; }
 .topbar-page { min-width: 86px; }
+.topbar-project-actions { gap: 8px; margin-left: 2px; }
+.topbar-link { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 32px; padding: 0 10px; border-color: var(--line-2); border-radius: 4px;
+  font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.topbar-link svg { width: 14px; height: 14px; fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.topbar-link.new-project { color: var(--mcp); background: var(--surface-2); }
+.topbar-link.new-project:hover { color: var(--ink); border-color: var(--mcp); background: var(--surface-3); }
+html[data-theme="light"] .topbar-link.new-project { color: #1B6758; background: #ECF5F1; }
+html[data-theme="light"] .topbar-link.new-project:hover {
+  color: #124C41; border-color: #9FC2B8; background: #E1F0EA;
+}
+.topbar-link.danger { width: 34px; padding: 0; color: var(--ink-4); background: transparent; }
+.topbar-link.danger span { position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; }
+.topbar-link.danger:hover { color: var(--danger); border-color: rgba(207,74,67,.35);
+  background: rgba(207,74,67,.07); }
 .account-avatar { border-radius: 50%; }
 .account-menu > .profile-theme-toggle { flex-direction: row; align-items: center; justify-content: space-between; }
 .profile-theme-toggle > span { display: flex; flex-direction: column; gap: 3px; }
@@ -242,8 +259,7 @@ html[data-theme="light"] .cctv-review-card > p b { color: var(--ink-2); }
 @media (max-width: 1250px) {
   .dashboard-shortcuts { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .dashboard-metrics .stat:nth-child(3) { border-left-width: 1px; }
-  .topbar-project-actions { flex-direction: column; gap: 0; }
-  .topbar-link { padding: 1px 5px; font-size: 10px; }
+  .topbar-project-actions { flex-direction: row; gap: 6px; }
 }
 @media (max-width: 1000px) { .brand span { display: none; } .topbar-page { display: none; } }
 @media (max-width: 860px) {
