@@ -1288,11 +1288,12 @@ function readinessCard(a) {
 
 VIEWS.controls = async (pid, params) => {
   params = params || {};
-  const [r, overview] = await Promise.all([
+  const [r, overview, timeline] = await Promise.all([
     A('/projects/' + pid + '/execution-controls?' + new URLSearchParams({
       days: params.days || 42, anchor: params.anchor || '',
     })),
     A('/projects/' + pid + '/overview'),
+    A('/projects/' + pid + '/timeline?window=full&limit=120'),
   ]);
   const look = r.lookahead || {activities: [], counts: {}};
   const hindrances = (r.hindrances || []).map(h => '<article class="hindrance-card"><header><div>' +
@@ -1386,22 +1387,32 @@ VIEWS.controls = async (pid, params) => {
       '</div></div></div><footer><span>Screening arithmetic</span><span>CPM validation required</span><span>Human approval before change</span></footer></section>';
 
   VIEWS._spatialPayload = VIEWS._spatialPayload || {};
-  VIEWS._spatialPayload[pid] = {activities: (look.activities || []).slice(0, 6)};
+  const spatialActivities = (timeline.activities || []).filter(a => a.start || a.finish).slice(0, 24);
+  VIEWS._spatialPayload[pid] = {
+    activities: spatialActivities.length ? spatialActivities : (look.activities || []).slice(0, 24),
+    rangeStart: timeline.range_start || look.anchor,
+    rangeFinish: timeline.range_finish || look.horizon,
+    anchor: timeline.anchor || look.anchor,
+    bimCount: Number(r.counts.bim_links || 0),
+  };
   const spatialControl = '<section class="spatial-control"><header><div><span class="eyebrow">VEDA Spatial Control</span>' +
-    '<h2>See the plan in space</h2><p>Explore workfronts, construction sequence and the scenario route without reading a dense model tree.</p></div>' +
-    '<span class="tag amber">illustrative spatial model</span></header>' +
+    '<h2>See the plan in space</h2><p>Play dated schedule activities through a clear spatial workfront view.</p></div>' +
+    '<span class="tag amber">schedule-driven · representative geometry</span></header>' +
     '<div class="spatial-toolbar" role="group" aria-label="Spatial view">' +
       '<button class="on" type="button" data-spatial-mode="site"><i>01</i><span><b>Site</b><small>Whole construction area</small></span></button>' +
       '<button type="button" data-spatial-mode="workfront"><i>02</i><span><b>Workfront</b><small>Focus pipes and spools</small></span></button>' +
       '<button type="button" data-spatial-mode="scenario"><i>03</i><span><b>Scenario</b><small>Show proposed route</small></span></button>' +
-    '</div><div class="spatial-stage"><div class="spatial-canvas" id="veda-spatial-canvas" aria-label="Interactive illustrative construction model"></div>' +
-      '<div class="spatial-hud"><span><i></i> VEDA SPATIAL / LOCAL</span><small>Drag to orbit · scroll to zoom · select an object</small></div>' +
+    '</div><div class="spatial-stage"><div class="spatial-canvas" id="veda-spatial-canvas" aria-label="Interactive schedule-driven construction model"></div>' +
+      '<div class="spatial-hud"><span><i></i> VEDA SPATIAL / LOCAL</span><small>Drag any direction to orbit · right-drag to pan · scroll to zoom</small></div>' +
+      '<div class="spatial-camera" aria-label="Camera views"><button type="button" data-spatial-camera="orbit">3D</button>' +
+        '<button type="button" data-spatial-camera="top">Top</button><button type="button" data-spatial-camera="ground">Ground</button></div>' +
       '<aside class="spatial-inspector" id="spatial-inspector"><span>SPATIAL INSPECTOR</span><b>Preparing construction view…</b></aside>' +
       '<div class="spatial-legend"><span class="active"><i></i>Active</span><span class="constrained"><i></i>Constrained</span>' +
         '<span class="future"><i></i>Future</span><span class="proposed"><i></i>Scenario</span></div></div>' +
-    '<footer class="spatial-phase"><div><span>Construction sequence</span><b id="spatial-phase-label">100% sequence</b></div>' +
-      '<input id="spatial-phase" type="range" min="0" max="100" value="100" aria-label="Construction sequence position">' +
-      '<small>Drag left to reveal how the site builds up. This is a visual sequence, not recorded progress.</small></footer></section>';
+    '<footer class="spatial-phase"><div><span>Schedule playback</span><b id="spatial-phase-label">Loading schedule dates…</b></div>' +
+      '<button type="button" class="spatial-play" id="spatial-play">▶ Play</button>' +
+      '<input id="spatial-phase" type="range" min="0" max="100" value="100" aria-label="Schedule playback date">' +
+      '<small id="spatial-source-note">Activity dates drive visibility. Geometry stays representative until a model and exact BIM identifiers are linked.</small></footer></section>';
 
   return head('Recovery & Scenarios', 'Lookahead readiness · hindrances · recovery screening · field context',
     '<select class="inp" id="lookahead-days"><option value="14">2 weeks</option><option value="42">6 weeks</option><option value="90">90 days</option></select>' +

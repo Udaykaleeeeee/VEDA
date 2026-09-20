@@ -1,5 +1,5 @@
-import * as THREE from '/static/vendor/three/three.module.min.js?v=1.74';
-import { OrbitControls } from '/static/vendor/three/OrbitControls.js?v=1.74';
+import * as THREE from '/static/vendor/three/three.module.min.js?v=1.75';
+import { OrbitControls } from '/static/vendor/three/OrbitControls.js?v=1.75';
 
 let active = null;
 
@@ -40,9 +40,18 @@ function mount(hostId, payload) {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
+  controls.enableRotate = true;
+  controls.enablePan = true;
+  controls.screenSpacePanning = true;
   controls.minDistance = 12;
   controls.maxDistance = 62;
-  controls.maxPolarAngle = Math.PI * 0.48;
+  controls.minPolarAngle = Math.PI * 0.06;
+  controls.maxPolarAngle = Math.PI * 0.49;
+  controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+  controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
+  controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+  controls.touches.ONE = THREE.TOUCH.ROTATE;
+  controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
   controls.target.set(0, 3.2, 0);
 
   scene.add(new THREE.HemisphereLight(0xbcece5, 0x18302e, 2.2));
@@ -59,6 +68,20 @@ function mount(hostId, payload) {
   grid.position.y = 0.015; grid.material.opacity = 0.34; grid.material.transparent = true; scene.add(grid);
 
   const selectable = [], phased = [], flow = [];
+  const sourceActivities = (payload.activities || []).filter(item => item && (item.start || item.finish));
+  const toTime = value => {
+    const parsed = value ? Date.parse(String(value).slice(0, 10) + 'T00:00:00Z') : NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const dated = sourceActivities.flatMap(item => [toTime(item.start), toTime(item.finish)]).filter(Number.isFinite);
+  const rangeStart = toTime(payload.rangeStart) ?? (dated.length ? Math.min(...dated) : Date.now());
+  const rangeFinish = Math.max(rangeStart + 86400000,
+    toTime(payload.rangeFinish) ?? (dated.length ? Math.max(...dated) : rangeStart + 100 * 86400000));
+  const rangeSpan = rangeFinish - rangeStart;
+  const phaseAt = (value, fallback) => {
+    const time = toTime(value);
+    return time === null ? fallback : Math.max(0, Math.min(100, (time - rangeStart) * 100 / rangeSpan));
+  };
   const standard = (color, extra = {}) => new THREE.MeshStandardMaterial({
     color, roughness: 0.34, metalness: 0.62, ...extra,
   });
@@ -66,21 +89,26 @@ function mount(hostId, payload) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), standard(color));
     mesh.position.set(...position); mesh.castShadow = true; mesh.receiveShadow = true;
     mesh.userData = meta || {}; scene.add(mesh);
-    if (meta) selectable.push(mesh); phased.push({object: mesh, phase});
+    if (meta) selectable.push(mesh);
+    phased.push({object: mesh, startPhase: meta?.startPhase ?? phase, finishPhase: meta?.finishPhase ?? 100, meta});
     return mesh;
   };
   const pipe = (x, y, z, length, radius, color, meta, phase = 0, rotation = 0) => {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 24), standard(color));
     mesh.rotation.z = Math.PI / 2; mesh.rotation.y = rotation;
     mesh.position.set(x, y, z); mesh.castShadow = true; mesh.userData = meta || {};
-    scene.add(mesh); selectable.push(mesh); phased.push({object: mesh, phase});
+    scene.add(mesh); selectable.push(mesh);
+    phased.push({object: mesh, startPhase: meta?.startPhase ?? phase, finishPhase: meta?.finishPhase ?? 100, meta});
     return mesh;
   };
   const activity = (index, fallback) => {
     const source = (payload.activities || [])[index] || {};
+    const startPhase = phaseAt(source.start || source.finish, Math.min(92, index * 8));
+    const finishPhase = Math.max(startPhase, phaseAt(source.finish || source.start, Math.min(100, startPhase + 10)));
     return {
       kind: 'activity', uid: source.uid || '', title: source.name || fallback,
       status: source.readiness || (index === 1 ? 'Constrained' : index === 2 ? 'Planned' : 'Active workfront'),
+      start: source.start || '', finish: source.finish || '', startPhase, finishPhase,
       detail: source.start && source.finish ? `${String(source.start).slice(0, 10)} → ${String(source.finish).slice(0, 10)}` :
         'Illustrative work package · connect a BIM identifier for exact model linkage',
     };
@@ -93,20 +121,21 @@ function mount(hostId, payload) {
     box([0.42, 0.32, 10.4], [x, 5.8, 0], COLORS.steel, null);
     box([0.42, 0.26, 10.4], [x, 3.2, 0], COLORS.steel, null);
   }
-  const metas = [activity(0, 'Main process line installation'), activity(1, 'Utility spool assembly'),
-    activity(2, 'Hydrotest and commissioning')];
+  const activityMetas = Array.from({length: Math.max(6, sourceActivities.length)}, (_, index) =>
+    activity(index, `Work package ${index + 1}`));
+  const metas = activityMetas.slice(0, 3);
   [-2.8, 0, 2.8].forEach((z, index) => {
     pipe(0, 6.55 - index * 0.72, z, 34, index === 0 ? 0.56 : 0.42,
-      index === 1 ? COLORS.amber : index === 2 ? COLORS.steel : COLORS.teal, metas[index], 22 + index * 26);
+      index === 1 ? COLORS.amber : index === 2 ? COLORS.steel : COLORS.teal, metas[index], metas[index].startPhase);
   });
 
   // Spool yard, equipment pads, trench and crane silhouette.
   for (let row = 0; row < 3; row++) for (let col = 0; col < 4; col++)
     pipe(-10 + col * 2.2, 0.55 + row * 0.42, 12 + row * 1.25, 1.7, 0.2,
-      row === 2 ? COLORS.amber : COLORS.teal, activity(3, 'Spool fabrication yard'), 15 + col * 7);
-  box([8, 0.35, 6], [10, 0.18, 12], 0x81918d, activity(4, 'Equipment foundation zone'), 42);
-  box([4.2, 3.4, 4.2], [10, 1.9, 12], 0x355f5b, activity(4, 'Equipment installation zone'), 68);
-  box([22, 0.22, 4.2], [-4, -0.05, -13], 0x274c49, activity(5, 'Pipeline trench section'), 34);
+      row === 2 ? COLORS.amber : COLORS.teal, activityMetas[3 + ((row * 4 + col) % Math.max(1, activityMetas.length - 3))], 15 + col * 7);
+  box([8, 0.35, 6], [10, 0.18, 12], 0x81918d, activityMetas[4], activityMetas[4].startPhase);
+  box([4.2, 3.4, 4.2], [10, 1.9, 12], 0x355f5b, activityMetas[4], activityMetas[4].startPhase);
+  box([22, 0.22, 4.2], [-4, -0.05, -13], 0x274c49, activityMetas[5], activityMetas[5].startPhase);
   box([0.55, 12, 0.55], [-18, 6, 10], COLORS.amber, null);
   box([10, 0.35, 0.35], [-13, 11.3, 10], COLORS.amber, null);
   box([0.15, 8, 0.15], [-8.2, 7.5, 10], COLORS.amber, null);
@@ -167,12 +196,51 @@ function mount(hostId, payload) {
     else { camera.position.set(25, 19, 29); controls.target.set(0, 3.2, 0); }
   };
   document.querySelectorAll('[data-spatial-mode]').forEach(button => button.onclick = () => setMode(button.dataset.spatialMode));
-  const slider = document.getElementById('spatial-phase');
-  if (slider) slider.oninput = () => {
-    phase = Number(slider.value);
-    phased.forEach(item => { item.object.visible = item.phase <= phase; });
-    if (phaseLabel) phaseLabel.textContent = phase + '% sequence';
+  const setCamera = view => {
+    if (view === 'top') { camera.position.set(0.01, 43, 0.01); controls.target.set(0, 0, 0); }
+    else if (view === 'ground') { camera.position.set(25, 4.8, 24); controls.target.set(0, 3.2, 0); }
+    else { camera.position.set(25, 19, 29); controls.target.set(0, 3.2, 0); }
+    controls.update();
+    document.querySelectorAll('[data-spatial-camera]').forEach(button =>
+      button.classList.toggle('on', button.dataset.spatialCamera === view));
   };
+  document.querySelectorAll('[data-spatial-camera]').forEach(button =>
+    button.onclick = () => setCamera(button.dataset.spatialCamera));
+  setCamera('orbit');
+  const slider = document.getElementById('spatial-phase');
+  const play = document.getElementById('spatial-play');
+  const sourceNote = document.getElementById('spatial-source-note');
+  let playTimer = 0;
+  const displayDate = value => new Date(rangeStart + rangeSpan * value / 100).toISOString().slice(0, 10);
+  const setPhase = value => {
+    phase = Math.max(0, Math.min(100, Number(value) || 0));
+    const activeCount = sourceActivities.filter((item, index) => {
+      const start = phaseAt(item.start || item.finish, Math.min(92, index * 8));
+      const finish = Math.max(start, phaseAt(item.finish || item.start, Math.min(100, start + 10)));
+      return start <= phase && finish >= phase;
+    }).length;
+    phased.forEach(item => { item.object.visible = item.startPhase <= phase; });
+    if (phaseLabel) phaseLabel.textContent = `${displayDate(phase)} · ${activeCount} active`;
+    if (slider) slider.value = String(phase);
+  };
+  const stopPlayback = () => {
+    if (playTimer) clearInterval(playTimer); playTimer = 0;
+    if (play) play.textContent = '▶ Play';
+  };
+  if (slider) slider.oninput = () => { stopPlayback(); setPhase(slider.value); };
+  if (play) play.onclick = () => {
+    if (playTimer) { stopPlayback(); return; }
+    if (phase >= 100) setPhase(0);
+    play.textContent = 'Ⅱ Pause';
+    playTimer = setInterval(() => {
+      if (phase >= 100) { stopPlayback(); return; }
+      setPhase(Math.min(100, phase + 1));
+    }, 110);
+  };
+  if (sourceNote) sourceNote.textContent = sourceActivities.length
+    ? `${sourceActivities.length} dated activities · ${displayDate(0)} → ${displayDate(100)}. Geometry is representative${payload.bimCount ? `; ${payload.bimCount} BIM identifiers are linked for future exact model selection.` : ' until a model and exact BIM identifiers are linked.'}`
+    : 'No dated activities are available, so this scene remains an illustrative workfront layout.';
+  setPhase(100);
 
   const resize = () => {
     const width = Math.max(1, host.clientWidth), height = Math.max(1, host.clientHeight);
@@ -190,7 +258,7 @@ function mount(hostId, payload) {
     controls.update(); renderer.render(scene, camera); raf = requestAnimationFrame(animate);
   };
   const destroy = () => {
-    if (!running) return; running = false; cancelAnimationFrame(raf); observer.disconnect();
+    if (!running) return; running = false; stopPlayback(); cancelAnimationFrame(raf); observer.disconnect();
     controls.dispose(); disposeTree(scene); renderer.dispose(); if (active && active.destroy === destroy) active = null;
   };
   active = {destroy}; animate();
