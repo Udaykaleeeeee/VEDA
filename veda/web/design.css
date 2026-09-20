@@ -59,8 +59,18 @@ html[data-theme="light"] .worker-role-chip { color: #7D5615; background: #FFF7E7
 .head .sub { font-family: var(--sans); line-height: 1.6; }
 .eyebrow { font-family: var(--sans); font-weight: 600; letter-spacing: .1em; }
 .panel, .stat, .control-visual-card, .intervention-panel, .supervisor-handoff { border-radius: 4px; box-shadow: none; }
-.panel > header { padding: 15px 18px; font-size: 13px; background: var(--surface); }
-.panel .body { padding: 18px; }
+/* Treat panels as page sections. Tables, inputs and decision surfaces keep
+   their own boundaries; an extra frame around each section only adds noise. */
+.panel { margin-bottom: 30px; border: 0; background: transparent; box-shadow: none; }
+.panel > header {
+  min-height: 38px; padding: 0 0 12px; border-bottom: 1px solid var(--line-2);
+  font-size: 15px; background: transparent;
+}
+.panel > header small { font-family: var(--sans); font-size: 11px; }
+.panel .body { padding: 18px 0 0; }
+.panel > .tw { border: 1px solid var(--line-2); border-top: 0; background: var(--surface); }
+.panel > .empty { padding: 34px 20px; border: 1px solid var(--line-2); border-top: 0;
+  background: var(--surface); }
 .stat { padding: 20px; border-top-width: 1px; }
 .stat .k { font: 600 10px/1.4 var(--sans); letter-spacing: .065em; }
 .stat .v { font-size: 28px; margin: 10px 0 8px; }
@@ -76,6 +86,9 @@ html[data-theme="light"] .topbar-link.danger:hover { color: var(--danger); }
 thead th { font-family: var(--sans); font-weight: 600; letter-spacing: .05em; padding: 12px; }
 tbody td { padding: 11px 12px; }
 button:focus-visible, summary:focus-visible { outline: 2px solid var(--mcp); outline-offset: 3px; }
+.skip-link { position: fixed; z-index: 1000; top: 8px; left: 12px; padding: 10px 14px;
+  color: #FFF; background: #164F45; transform: translateY(-160%); transition: transform .12s ease; }
+.skip-link:focus { transform: translateY(0); }
 .dashboard-hero {
   position: relative; isolation: isolate; display: flex; flex-direction: column;
   justify-content: flex-end; min-height: 300px; padding: 34px;

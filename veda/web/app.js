@@ -858,6 +858,8 @@ window.esc = esc;
 window.api = api; window.post = post; window.toast = toast;
 
 async function init() {
+  const skipMain = $('#skip-main');
+  if (skipMain) skipMain.onclick = () => $('#main').focus({ preventScroll: false });
   syncPersonaShell();
   restoreNavigationState();
   const navToggle = $('#nav-toggle');

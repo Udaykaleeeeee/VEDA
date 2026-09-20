@@ -14,10 +14,11 @@
   document.documentElement.dataset.theme = saved === 'dark' ? 'dark' : 'light';
 })();
 </script>
-<link rel="stylesheet" href="/static/app.css?v=1.66">
-<link rel="stylesheet" href="/static/design.css?v=1.66">
+<link rel="stylesheet" href="/static/app.css?v=1.68">
+<link rel="stylesheet" href="/static/design.css?v=1.68">
 </head>
 <body>
+<button class="skip-link" id="skip-main" type="button">Skip to main content</button>
 <div id="app">
   <div class="topbar">
     <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Collapse workspace navigation"
@@ -72,12 +73,12 @@
     <div class="chip" id="chip-mcp" hidden><i class="dot"></i><span>horizun</span></div>
   </div>
   <nav class="rail" id="rail"></nav>
-  <main class="main" id="main"></main>
+  <main class="main" id="main" tabindex="-1"></main>
 </div>
 <div class="toasts" id="toasts"></div>
-<script src="/static/views.js?v=1.66"></script>
-<script src="/static/vision-tracker.js?v=1.66"></script>
-<script src="/static/field-capture.js?v=1.66"></script>
-<script src="/static/app.js?v=1.66"></script>
+<script src="/static/views.js?v=1.68"></script>
+<script src="/static/vision-tracker.js?v=1.68"></script>
+<script src="/static/field-capture.js?v=1.68"></script>
+<script src="/static/app.js?v=1.68"></script>
 </body>
 </html>
