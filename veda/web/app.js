@@ -15,6 +15,11 @@ const S = {
 };
 
 const $ = (s, r) => (r || document).querySelector(s);
+const PROVIDER_UI_NAMES = {
+  auto: 'VEDA Auto', antigravity_cli: 'VEDA-A', claude_code: 'VEDA-B',
+  codex: 'VEDA-C', gemini_api: 'VEDA-A Cloud', local_antigravity: 'VEDA Bridge',
+};
+const providerUiName = (key, fallback) => PROVIDER_UI_NAMES[key] || String(fallback || key || 'VEDA');
 
 /* ------------------------------------------------------ read coalescing
    A live run fires many events, and each one asks the header and the current
@@ -313,8 +318,9 @@ async function refreshHealth() {
     const a = h.providers[h.active_provider] || {};
     const ca = $('#chip-agent');
     ca.className = 'chip ' + (a.ok ? 'ok' : 'bad');
-    const agentName = h.active_provider === 'auto' && a.selected_label
-      ? 'Auto → ' + a.selected_label : (a.label || h.active_provider);
+    const agentName = h.active_provider === 'auto' && a.selected
+      ? 'VEDA Auto → ' + providerUiName(a.selected, a.selected_label)
+      : providerUiName(h.active_provider, a.label);
     ca.querySelector('span').textContent = agentName + (a.ok ? '' : ' offline');
     const cm = $('#chip-mcp');
     cm.className = 'chip ' + (h.horizun.ok ? 'ok' : 'bad');

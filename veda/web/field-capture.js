@@ -400,14 +400,14 @@
 
     const button = el('capture-cctv-use');
     button.disabled = true; button.textContent = 'Preparing editable draft…';
-    const transcript = 'CCTV review (' + camera + ', demo video frame ' + observation.time + '): ' +
+    const transcript = 'CCTV review (' + camera + ', recorded frame ' + observation.time + '): ' +
       activityId + ' ' + activityName + ' visual progress is estimated at ' + progress + '%. Work remains. ' +
       (note ? note + ' ' : '') +
-      'Local camera demo observation; human verification required.';
+      'Local CCTV observation; human verification required.';
     state.transcriptDirty = false;
     state.voiceCaptured = false;
     setTranscript(transcript,
-      'CCTV review draft · local demo clip ' + feed.src.split('/').pop() +
+      'CCTV review draft · local recorded footage ' + feed.src.split('/').pop() +
       ' · reviewer confirmation required.', false);
     el('capture-confirmed').value = transcript;
     el('capture-location-label').value = camera;

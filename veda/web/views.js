@@ -312,14 +312,14 @@ VIEWS.capture = async (pid) => {
       '<button class="capture-action worker-only" id="capture-video-record" type="button"><i>◉</i><b>Record site video</b><small>Open this device’s camera</small></button>' +
       '<button class="capture-action cctv" id="capture-cctv" type="button" aria-expanded="false" aria-controls="capture-cctv-panel"><i>▶</i><b>Review CCTV</b><small>Inspect footage and draft progress</small></button></div>' +
       '<section class="cctv-workstation" id="capture-cctv-panel" hidden aria-label="CCTV progress review workstation">' +
-        '<header class="cctv-head"><div><span class="cctv-kicker"><i></i> LOCAL CAMERA · DEMO REVIEW</span>' +
+        '<header class="cctv-head"><div><span class="cctv-kicker"><i></i> LOCAL CCTV · RECORDED REVIEW</span>' +
         '<h3>Site Vision Review</h3><p>Pause, rewind, jump to an observation, then verify the AI draft before it becomes field evidence.</p></div>' +
         '<button class="cctv-close" id="capture-cctv-close" type="button" aria-label="Close CCTV review">×</button></header>' +
         '<div class="cctv-grid"><div class="cctv-feed-column"><div class="cctv-feed">' +
           '<video id="capture-cctv-player" title="Local site camera footage" src="/static/staticcams/CCTV_2.mp4" controls autoplay muted playsinline preload="metadata"></video>' +
           '<div class="site-vision-box-layer" id="capture-cctv-boxes" aria-hidden="true"><i class="vision-scan-line"></i></div>' +
           '<div class="cctv-feed-meta"><span><i></i> AI TRACKING</span><b id="capture-cctv-camera-label">Pipe laydown yard · CAM-03</b><time id="capture-cctv-clock">Frame 00:53</time></div>' +
-        '</div><div class="cctv-feed-toolbar"><label><span>Demo camera</span><select class="inp" id="capture-cctv-camera">' +
+        '</div><div class="cctv-feed-toolbar"><label><span>Local camera</span><select class="inp" id="capture-cctv-camera">' +
           '<option value="yard">Pipe laydown yard · CAM-03</option>' +
           '<option value="drilling">Drilling operations · CAM-01</option>' +
         '</select></label><div class="vision-mode-switch" id="capture-cctv-mode"><button class="selected" type="button" data-capture-cctv-mode="ai">AI scan</button>' +
@@ -356,7 +356,7 @@ VIEWS.capture = async (pid) => {
       '<option value="fr">Français</option><option value="ur">اردو</option></select></label>' +
       '<div class="capture-transcript-state" id="capture-transcript-state"><i></i><span>Waiting for an observation</span></div></div>' +
       '<div class="capture-language-help"><i>↳</i><div><b>Adaptive language understanding</b>' +
-      '<span>Common site phrases stay instant. If the corrected wording is unfamiliar, VEDA asks only the local reasoning service for a structured draft—never Claude or Codex—and you still edit every field.</span></div></div>' +
+      '<span>Common site phrases stay instant. If the corrected wording is unfamiliar, VEDA asks the configured VEDA reasoning engine for a structured draft—and you still edit every field.</span></div></div>' +
       '<label class="capture-wide-label"><span>Raw note / draft voice transcript <em>kept as source evidence</em></span>' +
       '<textarea class="inp" id="capture-original" rows="4" placeholder="Describe the work, exact area, quantities, blockers, and what you personally observed."></textarea></label>' +
       '<div class="capture-transcript-source" id="capture-transcript-source">Type a note, or record voice for a browser draft transcript.</div>' +
@@ -665,7 +665,7 @@ VIEWS.overview = async (pid) => {
       '<div class="body"><div style="white-space:pre-wrap;font-size:13.5px;line-height:1.6">' + E(o.summary) + '</div>' +
       '<div style="margin-top:10px">' + prov('AI_INFERENCE') +
       ' <span style="color:var(--ink-3);font-size:12px">Interpretive analysis from ' +
-      E(o.provider_label || o.active_provider) + '; it does not override the deterministic current-state summary above.</span></div></div>') : '') +
+      E(providerAliasText(o.provider_label || providerDisplayName(o.active_provider))) + '; it does not override the deterministic current-state summary above.</span></div></div>') : '') +
 
     '<div class="grid g2">' +
     panel('Authoritative schedule facts', '<div class="body"><dl class="kv">' +
@@ -3640,10 +3640,28 @@ function executionMap(job, activity) {
 /* Reasoning provider labels, mirroring agent/registry.py LABELS so the console
    reads well even before /health has landed in window.S. */
 const PROVIDER_LABELS = {
-  auto: 'Auto', antigravity_cli: 'Antigravity', claude_code: 'Claude Code',
-  codex: 'Codex', gemini_api: 'Gemini API',
-  local_antigravity: 'Antigravity · local bridge',
+  auto: 'VEDA Auto', antigravity_cli: 'VEDA-A', claude_code: 'VEDA-B',
+  codex: 'VEDA-C', gemini_api: 'VEDA-A Cloud',
+  local_antigravity: 'VEDA Bridge',
 };
+function providerDisplayName(key, fallback) {
+  return PROVIDER_LABELS[key] || providerAliasText(fallback || key || 'VEDA reasoning engine');
+}
+function providerAliasText(value) {
+  return String(value || '')
+    .replace(/npm install -g @anthropic-ai\/claude-code/gi, 'Install the configured VEDA-B runtime')
+    .replace(/no GEMINI_API_KEY\s*\/\s*GOOGLE_API_KEY in the environment/gi,
+      'VEDA-A Cloud credentials are not configured')
+    .replace(/set GEMINI_API_KEY to use (?:VEDA-A\/)?Gemini/gi,
+      'Configure VEDA-A Cloud credentials to enable this engine')
+    .replace(/Local reasoning agent/gi, 'VEDA Bridge')
+    .replace(/Antigravity\s*[·-]\s*local bridge/gi, 'VEDA Bridge')
+    .replace(/Claude CLI/gi, 'VEDA-B runtime')
+    .replace(/Claude Code/gi, 'VEDA-B')
+    .replace(/Gemini API/gi, 'VEDA-A Cloud')
+    .replace(/Antigravity/gi, 'VEDA-A')
+    .replace(/Codex/gi, 'VEDA-C');
+}
 
 /* The full execution visualiser, nested inside a run's thinking panel. It is
    auto-collapsed until there is a run to show, then unfolds with the panel so
@@ -3680,10 +3698,10 @@ function providerConsole(job) {
   let key = (job && job.provider) || activeName || null;
   if (key === 'auto') key = (auto && auto.selected) || 'auto';
   const ph = key ? providers[key] : null;
-  const label = (ph && ph.label) || PROVIDER_LABELS[key] || key || 'Reasoning provider';
+  const label = providerDisplayName(key, ph && ph.label);
   const reachable = ph ? !!ph.ok : null;
   const model = (ph && (ph.model || ph.version)) || '';
-  const note = (ph && (ph.note || ph.hint)) || '';
+  const note = providerAliasText((ph && (ph.note || ph.hint)) || '');
   const isLocal = key === 'local_antigravity' || key === 'antigravity_cli' ||
     activeName === 'local_antigravity';
   const chain = (auto && auto.chain) || [];
@@ -3725,7 +3743,7 @@ function providerConsole(job) {
       ? '<div class="pc-chain"><span>Fallback order</span>' + chain.map(c =>
           '<i class="' + (c.ok ? 'ok' : 'down') +
           (c.provider === key ? ' on' : '') + '">' +
-          E(PROVIDER_LABELS[c.provider] || c.provider) + '</i>').join('') + '</div>'
+          E(providerDisplayName(c.provider, c.label)) + '</i>').join('') + '</div>'
       : '') +
     (note ? '<p class="pc-note">' + E(note) + '</p>' : '') +
     (job && job.error
@@ -4256,23 +4274,25 @@ VIEWS.system = async (pid) => {
   const h = await A('/health');
   const hz = h.horizun || {};
   const caps = hz.capabilities || {};
-  return head('System', 'Runtime, MCP and reasoning providers') +
+  return head('System', 'Runtime, MCP and VEDA reasoning engines') +
     '<div class="grid g3" style="margin-bottom:14px">' +
     stat('Horizun', hz.ok ? 'online' : 'offline',
       E(hz.backend || hz.error || ''), hz.ok ? 'good' : 'hot') +
-    stat('Active provider', E(h.active_provider === 'auto' &&
-      (h.providers.auto || {}).selected_label
-        ? 'auto → ' + h.providers.auto.selected_label : h.active_provider),
+    stat('Active engine', E(h.active_provider === 'auto' &&
+      ((h.providers.auto || {}).selected || (h.providers.auto || {}).selected_label)
+        ? 'VEDA Auto → ' + providerDisplayName(
+            h.providers.auto.selected, h.providers.auto.selected_label)
+        : providerDisplayName(h.active_provider)),
       (h.providers[h.active_provider] || {}).ok ? 'reachable' : 'unavailable',
       (h.providers[h.active_provider] || {}).ok ? 'good' : 'hot') +
     stat('Worker', h.worker.current_job ? 'busy' : 'idle',
       E(h.worker.current_job || 'no job running')) +
     '</div>' +
-    panel('Reasoning providers <small>VEDA is provider-neutral</small>',
+    panel('VEDA reasoning engines <small>deployment-flexible runtime</small>',
       '<div class="body">' + Object.keys(h.providers).map(k => {
         const p = h.providers[k];
         return '<div class="review"><div class="h" style="display:flex;gap:9px;' +
-          'align-items:center;flex-wrap:wrap"><b>' + E(p.label || k) + '</b>' +
+          'align-items:center;flex-wrap:wrap"><b>' + E(providerDisplayName(k, p.label)) + '</b>' +
           (p.ok ? '<span class="tag green">reachable</span>'
                 : '<span class="tag red">unavailable</span>') +
           (p.active ? '<span class="tag blue">active</span>' : '') +
@@ -4281,12 +4301,12 @@ VIEWS.system = async (pid) => {
             '">Make active</button>') + '</div>' +
           '<div class="samples" style="padding-top:12px"><dl class="kv">' +
           (p.version ? row('Version', E(p.version)) : '') +
-          (p.model ? row('Model', E(p.model)) : '') +
+          (p.model ? row('Engine profile', E(providerAliasText(p.model))) : '') +
           (p.path ? row('Path', '<span class="mono" style="font-size:11px">' +
             E(p.path) + '</span>') : '') +
-          (p.error ? row('Error', '<span class="sev-high">' + E(p.error) +
+          (p.error ? row('Error', '<span class="sev-high">' + E(providerAliasText(p.error)) +
             '</span>') : '') +
-          (p.hint ? row('Hint', E(p.hint)) : '') +
+          (p.hint ? row('Hint', E(providerAliasText(p.hint))) : '') +
           '</dl></div></div>';
       }).join('') + '</div>') +
     panel('Horizun capability matrix <small>honoured, never assumed</small>',
