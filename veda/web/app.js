@@ -72,19 +72,20 @@ const SUPERVISOR_NAV = [
   ['Workspace', [
     ['capture', 'Capture field update'], ['files', 'Files'],
     ['proposals', 'Edit / proposed changes'],
-    ['attention', 'Review Inbox', 'attention'],
+    ['attention', 'Decisions', 'attention'],
   ]],
   ['Control', [
-    ['overview', 'Dashboard'], ['controls', 'Execution Control'], ['ask', 'Ask VEDA'],
+    ['overview', 'Dashboard'], ['portfolio', 'Portfolio'],
+    ['controls', 'Recovery & Scenarios'], ['ask', 'Ask VEDA'],
   ]],
   ['Field Truth', [
-    ['evidence', 'Evidence', 'evidence'], ['observed', 'Field vs Schedule'],
+    ['evidence', 'Evidence', 'evidence'], ['observed', 'Plan vs Reality'],
     ['issues', 'Issues', 'issues'], ['risks', 'Risks', 'risks'],
   ]],
   ['Schedule', [
     ['timeline', 'Schedule Timeline'], ['activities', 'Activities', 'activities'],
     ['critical', 'Critical Path', 'critical'],
-    ['milestones', 'Milestones', 'milestones'], ['quality', 'Schedule QA', 'qa_failed'],
+    ['milestones', 'Milestones', 'milestones'], ['quality', 'Schedule Health', 'qa_failed'],
   ]],
   ['Project Data', [
     ['certificates', 'Actuals Certificates'],
@@ -122,6 +123,7 @@ const NAV_ICONS = {
   proposals: '<path d="M4 18.5V20h1.5L17 8.5 15.5 7 4 18.5zM14 8.5l1.5 1.5M14.5 5.5l1-1a1.5 1.5 0 012 0l2 2a1.5 1.5 0 010 2l-1 1"/>',
   attention: '<path d="M4 5h16v14H4zM4 14h5l1.5 2h3L15 14h5"/>',
   overview: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
+  portfolio: '<path d="M4 20V10h4v10M10 20V4h4v16M16 20v-7h4v7M3 20h18"/>',
   controls: '<path d="M4 6h16M7 3v6M4 13h16M16 10v6M4 20h16M10 17v6"/>',
   timeline: '<path d="M3 5h18v14H3zM7 9h7M10 13h8M5 17h9"/>',
   ask: '<path d="M4 5h16v12H9l-5 3V5zM9 10h6M9 13h4"/>',
@@ -224,7 +226,7 @@ window.go = go;
 /* Views that are workspace-level, not project-level: they read config or
    runtime state, never a project, so they stay reachable before the first
    project exists. */
-const PROJECT_OPTIONAL_VIEWS = new Set(['anywhere', 'system']);
+const PROJECT_OPTIONAL_VIEWS = new Set(['portfolio', 'anywhere', 'system']);
 
 /* ------------------------------------------------------------ render */
 async function render() {

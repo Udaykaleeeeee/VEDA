@@ -1,10 +1,10 @@
-const CACHE = 'veda-shell-1.70';
+const CACHE = 'veda-shell-1.71';
 const SHELL = [
   '/', '/manifest.webmanifest', '/static/favicon.svg',
-  '/static/app.css?v=1.70', '/static/views.js?v=1.70',
-  '/static/vision-tracker.js?v=1.70', '/static/app.js?v=1.70',
-  '/static/field-capture.js?v=1.70',
-  '/static/design.css?v=1.70', '/static/assets/pipeline-hero.jpg'
+  '/static/app.css?v=1.71', '/static/views.js?v=1.71',
+  '/static/vision-tracker.js?v=1.71', '/static/app.js?v=1.71',
+  '/static/field-capture.js?v=1.71',
+  '/static/design.css?v=1.71', '/static/assets/pipeline-hero.jpg'
 ];
 const DB = 'veda-field-sync';
 const STORE = 'outbox';

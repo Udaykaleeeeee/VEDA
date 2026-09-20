@@ -982,6 +982,68 @@ html[data-theme="light"] .np-next-steps i { background: #FFF; }
   .control-strip { grid-template-columns: 1fr; }
 }
 
+/* ------------------------------------------ decision-led control surfaces */
+.control-score { display:grid; grid-template-columns:minmax(230px,.72fr) minmax(0,2fr);
+  margin:0 0 14px; border:1px solid var(--line-2); background:var(--surface);
+  box-shadow:var(--raise); }
+.control-score-main { display:flex; align-items:center; min-height:150px; padding:20px;
+  border-right:1px solid var(--line); }
+.control-score-main > div { display:flex; flex-direction:column; min-width:0; }
+.control-score-main b { margin:10px 0 3px; color:var(--ok); font:700 46px/1 var(--mono); }
+.control-score.warm .control-score-main b { color:var(--human); }
+.control-score.hot .control-score-main b { color:var(--bad); }
+.control-score-main strong { font-size:15px; }
+.control-score-main small { margin-top:7px; color:var(--ink-3); font-size:10.5px; }
+.control-score-main > i { width:60px; height:60px; margin-left:auto; border-radius:50%;
+  background:conic-gradient(var(--ok) calc(var(--score) * 1%), var(--line-2) 0);
+  box-shadow:inset 0 0 0 12px var(--surface); }
+.control-score.warm .control-score-main > i { background:conic-gradient(var(--human) calc(var(--score) * 1%), var(--line-2) 0); }
+.control-score.hot .control-score-main > i { background:conic-gradient(var(--bad) calc(var(--score) * 1%), var(--line-2) 0); }
+.control-score-parts { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); }
+.control-score-parts button { display:flex; flex-direction:column; gap:7px; padding:17px 13px;
+  text-align:left; color:var(--ink); background:transparent; border:0; border-right:1px solid var(--line);
+  cursor:pointer; }
+.control-score-parts button:last-child { border-right:0; }
+.control-score-parts button:hover { background:color-mix(in srgb, var(--mcp) 7%, transparent); }
+.control-score-parts span { color:var(--ink-3); font:9px/1.2 var(--mono); letter-spacing:.08em; text-transform:uppercase; }
+.control-score-parts b { font:650 24px/1 var(--mono); }
+.control-score-parts small { margin-top:auto; color:var(--ink-3); font-size:10.5px; line-height:1.35; }
+
+.scenario-lab { margin:14px 0; border:1px solid var(--line-2); background:var(--surface); box-shadow:var(--raise); }
+.scenario-lab > header,.portfolio-board > header,.revision-inspector > header { display:flex; align-items:center;
+  gap:16px; padding:16px 18px; border-bottom:1px solid var(--line); }
+.scenario-lab > header > div,.portfolio-board > header > div,.revision-inspector > header > div { min-width:0; flex:1; }
+.scenario-lab h2,.portfolio-board h2,.revision-inspector h3 { margin:4px 0 0; }
+.scenario-lab header p { margin:5px 0 0; color:var(--ink-3); font-size:12px; }
+.scenario-grid { display:grid; grid-template-columns:minmax(280px,.85fr) minmax(320px,1.15fr); }
+.scenario-inputs { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:18px; border-right:1px solid var(--line); }
+.scenario-inputs label > span { display:block; margin-bottom:5px; color:var(--ink-2); font:10px/1.2 var(--mono); text-transform:uppercase; }
+.scenario-number { display:flex; align-items:center; border:1px solid var(--line-2); }
+.scenario-number .inp { border:0; }
+.scenario-number i { padding:0 9px; color:var(--ink-3); font:10px/1 var(--mono); font-style:normal; }
+.scenario-inputs .btn { align-self:end; }
+.scenario-result { display:flex; flex-direction:column; justify-content:center; min-height:210px; padding:24px; border-left:3px solid var(--mcp); }
+.scenario-result.better { border-left-color:var(--ok); }.scenario-result.worse { border-left-color:var(--bad); }
+.scenario-result > span { color:var(--ink-3); font:10px/1 var(--mono); text-transform:uppercase; letter-spacing:.1em; }
+.scenario-result > b { margin:10px 0; font:650 32px/1 var(--mono); }
+.scenario-result p { max-width:650px; margin:8px 0 0; color:var(--ink-3); font-size:11.5px; line-height:1.5; }
+.scenario-delta { display:flex; gap:14px; align-items:baseline; }.scenario-delta strong { color:var(--ink); }.scenario-delta small { color:var(--ink-3); }
+.scenario-lab > footer { padding:10px 18px; color:var(--ink-3); border-top:1px solid var(--line); font:10px/1.45 var(--mono); }
+
+.portfolio-board { margin-top:14px; border:1px solid var(--line-2); background:var(--surface); box-shadow:var(--raise); }
+.portfolio-board > header > small { max-width:420px; color:var(--ink-3); text-align:right; }
+.portfolio-columns,.portfolio-row { display:grid; grid-template-columns:minmax(260px,1.8fr) repeat(3,minmax(90px,.55fr)) minmax(110px,.6fr); align-items:center; }
+.portfolio-columns { padding:9px 14px; color:var(--ink-3); border-bottom:1px solid var(--line); font:9px/1 var(--mono); text-transform:uppercase; letter-spacing:.08em; }
+.portfolio-row { width:100%; padding:13px 14px; color:var(--ink); text-align:left; background:transparent; border:0; border-bottom:1px solid var(--line); cursor:pointer; }
+.portfolio-row:hover { background:color-mix(in srgb, var(--mcp) 7%, transparent); }
+.portfolio-row > div:not(.portfolio-project) { display:flex; flex-direction:column; gap:4px; }.portfolio-row > div > span { color:var(--ink-3); font-size:10px; }
+.portfolio-project { display:flex; align-items:center; gap:11px; }.portfolio-project div { display:flex; flex-direction:column; gap:3px; }.portfolio-project small { color:var(--ink-3); }
+.portfolio-state { flex:none; width:8px; height:8px; background:var(--ink-3); }.portfolio-state.good { background:var(--ok); }.portfolio-state.warm { background:var(--human); }
+.portfolio-open { color:var(--mcp); font-size:11px; }.revision-inspector { margin:12px; border:1px solid var(--line-2); }.revision-diff { max-width:460px; font:10px/1.4 var(--mono); word-break:break-word; }
+
+@media (max-width:1100px) { .control-score { grid-template-columns:1fr; }.control-score-main { border-right:0; border-bottom:1px solid var(--line); }.control-score-parts { grid-template-columns:repeat(3,1fr); }.scenario-grid { grid-template-columns:1fr; }.scenario-inputs { border-right:0; border-bottom:1px solid var(--line); } }
+@media (max-width:720px) { .control-score-parts { grid-template-columns:1fr 1fr; }.scenario-inputs { grid-template-columns:1fr; }.portfolio-columns { display:none; }.portfolio-row { grid-template-columns:1fr 1fr; gap:12px; }.portfolio-project { grid-column:1/-1; }.portfolio-open { grid-column:1/-1; } }
+
 /* ================================================== hard-edge visual system
    Everything in VEDA is square. The product is an instrument panel for a
    construction schedule, so the surfaces read as machined plate: 1px hairlines,

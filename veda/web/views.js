@@ -159,7 +159,7 @@ function dashboardHero(title, detail, welcome = false) {
 
 function dashboardShortcuts() {
   const items = [
-    ['controls', 'Execution Control', 'Lookaheads & constraints', 'M4 6h16M7 3v6M4 13h16M16 10v6M4 20h16'],
+    ['controls', 'Recovery & Scenarios', 'Lookahead, blockers & options', 'M4 6h16M7 3v6M4 13h16M16 10v6M4 20h16'],
     ['ask', 'Ask VEDA', 'Grounded project answers', 'M4 5h16v12H9l-5 3V5zM8 10h8M8 13h5'],
     ['timeline', 'Schedule Timeline', 'Dates, logic & progress', 'M3 5h18v14H3zM7 9h7M10 13h8M5 17h9'],
     ['capture', 'Capture field update', 'Bring site evidence into view', 'M4 6h16v14H4zM9 6l1-3h4l1 3M12 10a3 3 0 100 6 3 3 0 000-6'],
@@ -168,6 +168,39 @@ function dashboardShortcuts() {
     '<button type="button" onclick="go(\'' + id + '\')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + path + '"/></svg>' +
     '<span><b>' + title + '</b><small>' + detail + '</small></span><span class="shortcut-arrow" aria-hidden="true">→</span></button>'
   ).join('') + '</nav>';
+}
+
+function controlScoreCard(o, reportingLag) {
+  const s = o.schedule || {}, c = o.counts || {}, f = o.field_context || {};
+  const evaluated = Number(o.quality.passed || 0) + Number(o.quality.failed || 0);
+  const schedule = evaluated ? Math.max(0, Math.min(100, Number(s.health_score || 0))) : null;
+  const evidenceTotal = Number(f.record_count || f.evidence_observation_count || 0);
+  const evidence = evidenceTotal
+    ? Math.max(0, Math.min(100, 100 * Number(f.validated_link_record_count || 0) / evidenceTotal)) : null;
+  const freshness = reportingLag === null ? null : Math.max(0, Math.min(100, 100 - reportingLag * 12.5));
+  const decisions = Math.max(0, 100 - 12 * (Number(c.pending_reviews || 0) + Number(c.pending_proposals || 0)));
+  const exposure = Math.max(0, 100 - 9 * Number(c.open_risks || 0) - 7 * Number(c.open_issues || 0) -
+    8 * Number(c.open_hindrances || 0) - 6 * Number(c.open_constraints || 0));
+  const parts = [
+    ['Schedule health', schedule, evaluated ? o.quality.failed + ' failed checks' : 'not evaluable'],
+    ['Evidence confidence', evidence, evidenceTotal ? int(f.validated_link_record_count || 0) + ' validated links' : 'no observations'],
+    ['Reporting freshness', freshness, reportingLag === null ? 'not evaluable' : reportingLag + 'd behind status date'],
+    ['Decision flow', decisions, int(Number(c.pending_reviews || 0) + Number(c.pending_proposals || 0)) + ' waiting'],
+    ['Risk exposure', exposure, int(Number(c.open_risks || 0) + Number(c.open_issues || 0)) + ' open records'],
+  ];
+  const scored = parts.filter(x => x[1] !== null);
+  const score = scored.length ? Math.round(scored.reduce((n, x) => n + x[1], 0) / scored.length) : null;
+  const tone = score === null ? 'unknown' : score >= 80 ? 'good' : score >= 60 ? 'warm' : 'hot';
+  const label = score === null ? 'Awaiting project signals' : score >= 80 ? 'Under control' : score >= 60 ? 'Needs attention' : 'Intervention required';
+  return '<section class="control-score ' + tone + '"><div class="control-score-main"><div>' +
+    '<span class="eyebrow">VEDA Control Score</span><b>' + (score === null ? '—' : score) +
+    '</b><strong>' + E(label) + '</strong><small>Transparent operational index · available inputs only</small></div>' +
+    '<i style="--score:' + (score || 0) + '" aria-hidden="true"></i></div><div class="control-score-parts">' +
+    parts.map(x => '<button type="button" onclick="go(\'' +
+      (x[0] === 'Schedule health' ? 'quality' : x[0] === 'Evidence confidence' ? 'evidence' :
+       x[0] === 'Decision flow' ? 'attention' : x[0] === 'Risk exposure' ? 'risks' : 'controls') + '\')">' +
+      '<span>' + E(x[0]) + '</span><b>' + (x[1] === null ? '—' : Math.round(x[1])) +
+      '</b><small>' + E(x[2]) + '</small></button>').join('') + '</div></section>';
 }
 
 /* ===================================================== no project */
@@ -568,6 +601,8 @@ VIEWS.overview = async (pid) => {
     '<span>Data/status date · ' + (s.data_date ? day(s.data_date) : 'not evaluable') + '</span>' +
     '<span>Revision ' + E(s.revision) + '</span>') +
     '<div class="dashboard-key">' + provKey() + '</div>' +
+
+    controlScoreCard(o, reportingLag) +
 
     '<div class="grid g4 dashboard-metrics">' +
     stat('Current forecast finish', forecastValue, E(forecastDetail),
@@ -1056,6 +1091,50 @@ VIEWS.hasActiveSiteVision = () => Boolean(VIEWS._siteVisionBusy);
 
 const row = (k, v) => '<dt>' + E(k) + '</dt><dd>' + v + '</dd>';
 
+/* ====================================================== portfolio control */
+VIEWS.portfolio = async () => {
+  const r = await A('/projects');
+  const projects = r.projects || [];
+  const totals = projects.reduce((out, p) => {
+    const c = p.counts || {};
+    out.activities += Number(c.activities || 0);
+    out.evidence += Number(c.evidence || 0);
+    out.attention += Number(c.issues || 0) + Number(c.risks || 0) + Number(c.open_reviews || 0);
+    return out;
+  }, {activities: 0, evidence: 0, attention: 0});
+  const rows = projects.map(p => {
+    const c = p.counts || {}, hasSchedule = !!p.snapshot || Number(c.activities || 0) > 0;
+    const attention = Number(c.issues || 0) + Number(c.risks || 0) + Number(c.open_reviews || 0);
+    return '<button class="portfolio-row" type="button" data-open-project="' + E(p.id) + '">' +
+      '<div class="portfolio-project"><span class="portfolio-state ' +
+        (!hasSchedule ? 'unknown' : attention ? 'warm' : 'good') + '"></span><div><b>' + E(p.name) +
+        '</b><small>' + E([p.client, p.location].filter(Boolean).join(' · ') || 'Project workspace') +
+        '</small></div></div><div><span>Activities</span><b>' + int(c.activities || 0) +
+        '</b></div><div><span>Evidence</span><b>' + int(c.evidence || 0) + '</b></div><div><span>Attention</span><b>' +
+        int(attention) + '</b></div><div class="portfolio-open">Open project →</div></button>';
+  }).join('');
+  return head('Portfolio', 'Every project, its available control signals, and where attention is required') +
+    '<div class="grid g4 control-summary">' +
+      stat('Projects', int(projects.length), 'active VEDA workspaces') +
+      stat('Activities', int(totals.activities), 'available across project schedules') +
+      stat('Evidence records', int(totals.evidence), 'field observations across the portfolio') +
+      stat('Attention records', int(totals.attention), 'issues, risks and open decisions', totals.attention ? 'warm' : 'good') +
+    '</div><section class="portfolio-board"><header><div><span class="eyebrow">Portfolio control</span>' +
+      '<h2>Project health at a glance</h2></div><small>Counts show stored records; unavailable schedule data remains explicit.</small></header>' +
+      '<div class="portfolio-columns"><span>Project</span><span>Activities</span><span>Evidence</span><span>Attention</span><span></span></div>' +
+      (rows || empty('No projects yet', 'Create a project to begin portfolio control.')) + '</section>';
+};
+
+VIEWS.bind_portfolio = () => {
+  document.querySelectorAll('[data-open-project]').forEach(button => button.onclick = () => {
+    const picker = document.getElementById('projpick');
+    if (!picker) return;
+    picker.value = button.dataset.openProject;
+    picker.dispatchEvent(new Event('change', {bubbles: true}));
+    go('overview');
+  });
+};
+
 /* ===================================================== 2. EPS */
 VIEWS.eps = async (pid) => {
   const r = await A('/projects/' + pid + '/eps');
@@ -1209,9 +1288,12 @@ function readinessCard(a) {
 
 VIEWS.controls = async (pid, params) => {
   params = params || {};
-  const r = await A('/projects/' + pid + '/execution-controls?' + new URLSearchParams({
-    days: params.days || 42, anchor: params.anchor || '',
-  }));
+  const [r, overview] = await Promise.all([
+    A('/projects/' + pid + '/execution-controls?' + new URLSearchParams({
+      days: params.days || 42, anchor: params.anchor || '',
+    })),
+    A('/projects/' + pid + '/overview'),
+  ]);
   const look = r.lookahead || {activities: [], counts: {}};
   const hindrances = (r.hindrances || []).map(h => '<article class="hindrance-card"><header><div>' +
     '<small>' + E(h.ref || h.category || 'Site hindrance') + '</small><h3>' + E(h.title) + '</h3></div>' +
@@ -1274,13 +1356,28 @@ VIEWS.controls = async (pid, params) => {
     '<label><span>BIM identifier</span><input class="inp mono" name="identifier_value"></label><label><span>BIM model</span><input class="inp" name="model_name"></label></div>' +
     '<label><span>Why this is new scope</span><textarea class="inp" rows="3" name="reason"></textarea></label>', 'Create governed proposal');
 
-  return head('Execution Control', 'Look-ahead readiness · hindrances · field context · BIM identity',
+  const schedule = overview.schedule || {};
+  const scenarioLab = '<section class="scenario-lab"><header><div><span class="eyebrow">Non-destructive planning</span>' +
+    '<h2>Scenario Lab</h2><p>Screen a recovery idea against the current forecast before creating a governed proposal.</p></div>' +
+    '<span class="tag violet">does not edit the schedule</span></header><div class="scenario-grid">' +
+    '<div class="scenario-inputs"><label><span>Scenario name</span><input class="inp" id="scenario-name" value="Recovery option A"></label>' +
+    '<label><span>Possible delay</span><div class="scenario-number"><input class="inp" id="scenario-delay" type="number" min="0" step="1" value="0"><i>days</i></div></label>' +
+    '<label><span>Expected recovery</span><div class="scenario-number"><input class="inp" id="scenario-recovery" type="number" min="0" step="1" value="0"><i>days</i></div></label>' +
+    '<label><span>Added crew / equipment cost</span><div class="scenario-number"><input class="inp" id="scenario-cost" type="number" min="0" step="1000" value="0"><i>estimate</i></div></label>' +
+    '<button class="btn primary" type="button" id="scenario-run">Compare option</button></div>' +
+    '<div class="scenario-result" id="scenario-result" data-forecast="' + E(schedule.forecast_finish || '') + '">' +
+      '<span>Current forecast</span><b>' + (schedule.forecast_finish ? day(schedule.forecast_finish) : 'Not evaluable') +
+      '</b><p>Enter explicit assumptions to compare an option. VEDA will show arithmetic only; CPM logic and resource feasibility still require schedule validation.</p>' +
+    '</div></div><footer>Scenario results are temporary and clearly separated from schedule facts, field evidence, and approved changes.</footer></section>';
+
+  return head('Recovery & Scenarios', 'Lookahead readiness · hindrances · recovery screening · field context',
     '<select class="inp" id="lookahead-days"><option value="14">2 weeks</option><option value="42">6 weeks</option><option value="90">90 days</option></select>' +
     '<button class="btn sm" onclick="go(\'timeline\',{window:\'42\'})">Open timeline</button>') +
     '<div class="grid g4 control-summary">' + stat('Open hindrances', int(r.counts.open_hindrances), 'observed obstructions', r.counts.open_hindrances ? 'warm' : 'good') +
     stat('Open readiness constraints', int(r.counts.open_constraints), 'drawing, material, access and other holds', r.counts.open_constraints ? 'warm' : 'good') +
     stat('Confirmed BIM identities', int(r.counts.bim_links), 'exact model-to-activity links') +
     stat('New-scope events', int(r.counts.new_scope_waiting), 'not yet represented by a governed activity proposal', r.counts.new_scope_waiting ? 'warm' : 'good') + '</div>' +
+    scenarioLab +
     '<div class="control-forms">' + constraintForm + hindranceForm + contextForm + bimForm + suggestionForm + '</div>' +
     '<div class="section-divider"><span>' + E(look.anchor) + ' → ' + E(look.horizon) + '</span><small>Readiness look-ahead</small></div>' +
     '<div class="readiness-strip"><span class="green">' + int(look.counts.ready) + ' ready</span><span class="red">' + int(look.counts.blocked) +
@@ -1301,6 +1398,26 @@ VIEWS.controls = async (pid, params) => {
 VIEWS.bind_controls = (pid, params) => {
   const days = document.getElementById('lookahead-days');
   if (days) { days.value = String(params.days || 42); days.onchange = () => go('controls', {days: days.value}); }
+  const scenarioRun = document.getElementById('scenario-run');
+  if (scenarioRun) scenarioRun.onclick = () => {
+    const result = document.getElementById('scenario-result');
+    const base = result.dataset.forecast;
+    const delay = Math.max(0, Number(document.getElementById('scenario-delay').value) || 0);
+    const recovery = Math.max(0, Number(document.getElementById('scenario-recovery').value) || 0);
+    const cost = Math.max(0, Number(document.getElementById('scenario-cost').value) || 0);
+    const net = delay - recovery;
+    let finish = 'Not evaluable';
+    if (base) {
+      const value = new Date(day(base) + 'T00:00:00Z');
+      value.setUTCDate(value.getUTCDate() + net);
+      finish = value.toISOString().slice(0, 10);
+    }
+    result.className = 'scenario-result ' + (net > 0 ? 'worse' : net < 0 ? 'better' : 'neutral');
+    result.innerHTML = '<span>' + E(document.getElementById('scenario-name').value || 'Scenario') + '</span><b>' +
+      E(finish) + '</b><div class="scenario-delta"><strong>' + (net > 0 ? '+' : '') + E(net) +
+      ' calendar days</strong><small>' + (cost ? 'Added cost estimate · ' + E(cost.toLocaleString()) : 'No added cost entered') +
+      '</small></div><p>Screening result from your delay and recovery assumptions. Validate logic, calendars, resources, cost, and critical path before proposing a change.</p>';
+  };
   const payload = form => {
     const body = Object.fromEntries(new FormData(form).entries());
     form.querySelectorAll('input[type="checkbox"][name]').forEach(box => body[box.name] = box.checked);
@@ -1760,7 +1877,7 @@ VIEWS.quality = async (pid) => {
   const r = await A('/projects/' + pid + '/quality');
   const s = r.summary || {};
   const g = s.semanticGuard || {};
-  return head('Schedule QA', 'Source-evaluable DCMA/Horizun checks',
+  return head('Schedule Health', 'Source-evaluable quality checks with exact findings and fixes',
     prov('MCP_FACT') + ' ' + prov('DETERMINISTIC_CALCULATION')) +
     '<div class="grid g4" style="margin-bottom:14px">' +
     stat('Evaluable-check pass rate', num(r.health_score, 1) + '%', 'passed / evaluated checks only; not-evaluated checks are excluded',
@@ -2320,7 +2437,7 @@ VIEWS['bind_review-evidence'] = (pid) =>
 /* ============================================ 17. Observed progress */
 VIEWS.observed = async (pid) => {
   const r = await A('/projects/' + pid + '/observed-progress');
-  return head('Observed progress', 'Field reports beside the schedule') +
+  return head('Plan vs Reality', 'Verified field reports beside the authoritative schedule') +
     '<div class="note warn" style="margin-bottom:14px">' + E(r.note) + '</div>' +
     panel('Comparison <small>' + r.rows.length + '</small>',
       table([{ t: 'UID' }, { t: 'Activity' }, { t: 'Official' },
@@ -3049,9 +3166,10 @@ VIEWS.stopAskVoice = (pid) => {
 };
 
 const ASK_SUGGESTIONS = [
-  'What is driving the current forecast finish?',
-  'Which activities have unresolved evidence conflicts right now?',
-  'Summarize open risks sitting on the critical path.',
+  'What changed since the last schedule update?',
+  'Why did the forecast finish move?',
+  'Which activities still need verified field evidence?',
+  'Show the safest recovery options for the current critical path.',
 ];
 
 function askTurn(turn, steps, calls) {
@@ -3911,13 +4029,13 @@ VIEWS.files = async (pid) => {
     (pendingBatch ? panel('Schedule selection required <small>' + pendingCandidates.length + ' candidates</small>',
       '<div class="body"><div class="note warn" style="margin-bottom:10px">This project folder contains multiple schedule revisions. VEDA has paused before choosing one.</div>' +
       '<button class="btn primary" data-choose-schedule-batch="' + E(pendingBatch.id) + '">Choose authoritative schedule</button></div>') : '') +
-    (revs.length ? panel('Schedule revisions <small>' + revs.length + '</small>',
+    (revs.length ? panel('Update comparison <small>' + revs.length + ' schedule revisions</small>',
       '<div class="note" style="margin:0 12px 10px">A new schedule is a new ' +
       'revision. VEDA compares activities by Horizun stable UID and keeps the ' +
       'source file immutable.</div>' +
       table([{ t: 'Rev' }, { t: 'Source' }, { t: 'Activities', r: true },
         { t: 'Added', r: true }, { t: 'Removed', r: true },
-        { t: 'Updated', r: true }, { t: 'Current' }], revs, x =>
+        { t: 'Updated', r: true }, { t: 'Current' }, {t: ''}], revs, x =>
         '<tr><td class="mono">r' + int(x.revision) + '</td>' +
         '<td class="trunc mono" style="max-width:260px">' +
         E((x.source_path || '').split(/[\\/]/).pop() || '—') + '</td>' +
@@ -3927,7 +4045,8 @@ VIEWS.files = async (pid) => {
         '">−' + int(x.removed_count || 0) + '</td>' +
         '<td class="r mono">' + int(x.updated_count || 0) + '</td>' +
         '<td>' + (x.is_current ? '<span class="tag green">current</span>' : '') +
-        '</td></tr>')) : '') +
+        '</td><td><button class="btn sm" type="button" data-revision="' + int(x.revision) +
+        '">Inspect changes</button></td></tr>') + '<div id="revision-change-view"></div>') : '') +
     panel('Source library <small>' + r.files.length + '</small>',
       table([{ t: 'Name' }, { t: 'Type / schema' }, { t: 'Relevance' }, { t: 'Source mode' },
         { t: 'Size', r: true }, { t: 'SHA-256' }, { t: 'Extraction' },
@@ -4004,6 +4123,26 @@ VIEWS.bind_files = (pid) => {
   VIEWS._ingestState = VIEWS._ingestState || {};
   const st = VIEWS._ingestState[pid] ||
     (VIEWS._ingestState[pid] = { files: [], text: '', mode: 'field_note', title: '' });
+  document.querySelectorAll('[data-revision]').forEach(button => button.onclick = async () => {
+    const host = document.getElementById('revision-change-view');
+    button.disabled = true;
+    try {
+      const r = await A('/projects/' + pid + '/schedule-revisions/' + button.dataset.revision + '/changes');
+      const changes = r.changes || [];
+      host.innerHTML = '<section class="revision-inspector"><header><div><span class="eyebrow">Revision ' +
+        E(r.revision) + '</span><h3>Exact schedule changes</h3></div><b>' + int(changes.length) +
+        ' changed activities</b></header>' + (changes.length ? table([
+          {t:'Change'}, {t:'Activity UID'}, {t:'Fields'}, {t:'Before → after'}
+        ], changes, change => '<tr><td>' + tagFor(change.change_type, {added:'green',removed:'red',updated:'amber'}) +
+          '</td><td class="mono">' + E(change.activity_uid || '—') + '</td><td>' +
+          E((change.changed_fields || []).join(', ') || '—') + '</td><td class="revision-diff">' +
+          E(change.before && change.after ? JSON.stringify(change.before) + ' → ' + JSON.stringify(change.after) :
+            change.after ? JSON.stringify(change.after) : change.before ? JSON.stringify(change.before) : '—') +
+          '</td></tr>') : empty('No activity-level changes', 'This revision may be the first imported schedule.')) + '</section>';
+      host.scrollIntoView({behavior:'smooth', block:'nearest'});
+    } catch (error) { window.toast('Could not load revision changes: ' + error.message, 'bad'); }
+    finally { button.disabled = false; }
+  });
   const inp = document.getElementById('fileinput');
   const dz = document.getElementById('ingestdrop');
   const pick = document.getElementById('pickfiles');
